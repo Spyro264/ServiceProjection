@@ -1,12 +1,12 @@
 import { useState } from 'react'
 import { daysBetween, formatDate, today } from '../lib/dates.js'
-import { findRule, projectFromAge, projectService, serviceLabel } from '../lib/projection.js'
-import { recordEstimatedServices, recordPreviousServices, scheduleService } from '../lib/services.js'
-import { loadMasterRules, loadVehicles, saveVehicles } from '../lib/storage.js'
+import { projectFromAge, projectService, ruleSummary, serviceLabel } from '../lib/projection.js'
+import { recordEstimatedServices, recordPreviousServices, scheduleService, tagRuleFor } from '../lib/services.js'
+import { loadBikes, loadMasterRules, loadTags, loadVehicles, saveVehicles } from '../lib/storage.js'
 
-const fields = [
-  { name: 'regNo', label: 'Vehicle Reg No', placeholder: 'KA01AB1234' },
-  { name: 'model', label: 'Vehicle Model', placeholder: 'Activa 6G' },
+// Vehicle details below the bike picker. Model is filled from the selected bike.
+const detailFields = [
+  { name: 'model', label: 'Vehicle Model', readOnly: true, placeholder: 'Filled from the bike' },
   { name: 'company', label: 'Vehicle Company', placeholder: 'Honda' },
   { name: 'invoiceDate', label: 'Invoice Date', type: 'date' },
 ]
@@ -35,16 +35,33 @@ const inputClass = (error) =>
 
 const normalizeRegNo = (regNo) => regNo.toUpperCase().replace(/\s+/g, '')
 
-function validate(form, vehicles, rule) {
+// Reg No choices: bikes that have a tag and are not onboarded yet, with their tag and its rule.
+function taggedBikeOptions() {
+  const tags = loadTags()
+  const rules = loadMasterRules()
+  const onboarded = new Set(loadVehicles().map((v) => v.regNo))
+  return loadBikes()
+    .filter((bike) => bike.tagId && !onboarded.has(bike.regNo))
+    .map((bike) => {
+      const tag = tags.find((t) => t.id === bike.tagId)
+      return { ...bike, tagName: tag?.name ?? '—', rule: tag && rules.find((r) => r.id === tag.ruleId) }
+    })
+}
+
+function validate(form, vehicles, { tag, rule }) {
   const errors = {}
-  for (const { name } of fields) {
-    if (!form[name].trim()) errors[name] = 'Required'
+  if (!form.regNo) errors.regNo = 'Select a bike'
+  for (const { name, readOnly } of detailFields) {
+    if (!readOnly && !form[name].trim()) errors[name] = 'Required'
   }
   if (!errors.regNo && vehicles.some((v) => v.regNo === normalizeRegNo(form.regNo))) {
     errors.regNo = 'Already onboarded'
   }
-  if (!errors.model && !rule) {
-    errors.model = 'No master rule for this model. Add a rule for this model, then onboard.'
+  // The service rule comes from the bike's tag, so the bike must be tagged first.
+  if (!errors.regNo && !tag) {
+    errors.regNo = 'No tag assigned to this bike. Assign a tag in Service Plan Setup, then onboard.'
+  } else if (!errors.regNo && !rule) {
+    errors.regNo = "This bike's tag has no service rule."
   }
   if (!errors.invoiceDate && form.invoiceDate > today()) {
     errors.invoiceDate = 'Cannot be in the future'
@@ -70,10 +87,16 @@ function OnboardVehicles() {
   const [form, setForm] = useState(emptyForm)
   const [errors, setErrors] = useState({})
   const [message, setMessage] = useState('')
+  const bikeOptions = taggedBikeOptions()
+  const selectedBike = bikeOptions.find((b) => b.regNo === form.regNo)
 
   function handleChange(e) {
     const { name, value } = e.target
-    setForm((prev) => ({ ...prev, [name]: name === 'regNo' ? value.toUpperCase() : value }))
+    setForm((prev) => ({
+      ...prev,
+      [name]: value,
+      ...(name === 'regNo' && { model: bikeOptions.find((b) => b.regNo === value)?.model ?? '' }),
+    }))
     setErrors((prev) => ({ ...prev, [name]: undefined }))
     setMessage('')
   }
@@ -81,8 +104,9 @@ function OnboardVehicles() {
   function handleSave(e) {
     e.preventDefault()
     const vehicles = loadVehicles()
-    const rule = findRule(loadMasterRules(), form.model, form.invoiceDate)
-    const nextErrors = validate(form, vehicles, rule)
+    const tagRule = tagRuleFor(normalizeRegNo(form.regNo))
+    const { tag, rule } = tagRule
+    const nextErrors = validate(form, vehicles, tagRule)
     console.log('Onboard vehicle submitted', { form, errors: nextErrors })
     setErrors(nextErrors)
     if (Object.keys(nextErrors).length > 0) return
@@ -99,9 +123,10 @@ function OnboardVehicles() {
     const vehicle = {
       id: crypto.randomUUID(),
       regNo: normalizeRegNo(form.regNo),
-      model: rule.model,
+      model: form.model.trim(),
       company: form.company.trim(),
       invoiceDate: form.invoiceDate,
+      tagId: tag.id,
       ruleId: rule.id,
       projection,
       onboardedAt: new Date().toISOString(),
@@ -109,13 +134,13 @@ function OnboardVehicles() {
     saveVehicles([vehicle, ...vehicles])
     console.log('Onboard vehicle saved', vehicle)
 
-    if (lastService) recordPreviousServices(vehicle, lastService)
-    if (estimate) recordEstimatedServices(vehicle, estimate.pastCount)
+    if (lastService) recordPreviousServices(vehicle, rule, lastService)
+    if (estimate) recordEstimatedServices(vehicle, rule, estimate.pastCount)
     const jobCard = scheduleService(vehicle, projection)
 
     setForm(emptyForm)
     setMessage(
-      `${vehicle.regNo} onboarded.${
+      `${vehicle.regNo} onboarded on tag "${tag.name}".${
         lastService
           ? ` Last service (${serviceLabel(lastService.serviceNo)}) recorded at ${lastService.kmDoneAt.toLocaleString('en-IN')} km on ${formatDate(lastService.doneDate)}.`
           : estimate
@@ -136,51 +161,108 @@ function OnboardVehicles() {
         </p>
       </div>
 
+      {message && (
+        <div className="mb-5 flex items-start gap-3 rounded-xl border border-brand bg-brand/15 p-4 text-sm text-neutral-900" role="status">
+          <svg className="mt-0.5 size-5 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" aria-hidden="true">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+          </svg>
+          <p>{message}</p>
+        </div>
+      )}
+
       <form onSubmit={handleSave} noValidate className="rounded-xl border border-neutral-200 bg-white">
-        <div className="p-5 sm:px-6">
-          <h2 className="text-base font-semibold">Vehicle Details</h2>
-          <p className="mt-1 text-sm text-neutral-500">All vehicle fields are mandatory.</p>
+        <div className="border-b border-neutral-200 p-5 sm:px-6">
+          <h2 className="text-base font-semibold">Pick Bike</h2>
+          <p className="mt-1 text-sm text-neutral-500">Only bikes with a tag are listed. The bike follows its tag&apos;s service rule.</p>
+
+          <div className="mt-4 grid items-start gap-4 lg:grid-cols-2">
+            <div>
+              <label htmlFor="regNo" className="block text-sm font-medium text-neutral-700">
+                Vehicle Reg No <span className="text-neutral-400">*</span>
+              </label>
+              <select
+                id="regNo"
+                name="regNo"
+                value={form.regNo}
+                onChange={handleChange}
+                aria-invalid={Boolean(errors.regNo)}
+                aria-describedby={errors.regNo ? 'regNo-error' : undefined}
+                className={`mt-1.5 ${inputClass(errors.regNo)}`}
+              >
+                <option value="">{bikeOptions.length ? 'Select a bike' : 'No tagged bikes'}</option>
+                {bikeOptions.map(({ regNo, tagName }) => (
+                  <option key={regNo} value={regNo}>
+                    {regNo} · {tagName}
+                  </option>
+                ))}
+              </select>
+              {errors.regNo ? (
+                <p id="regNo-error" className="mt-1 text-xs font-medium text-neutral-900">
+                  {errors.regNo}
+                </p>
+              ) : (
+                bikeOptions.length === 0 && (
+                  <p className="mt-1 text-xs text-neutral-500">Assign a tag in Service Plan Setup first.</p>
+                )
+              )}
+            </div>
+
+            {selectedBike ? (
+              <div className="rounded-lg bg-neutral-950 p-4 text-neutral-300">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="inline-flex items-center gap-1.5 rounded-md bg-white/10 px-2 py-0.5 text-sm font-semibold text-brand">
+                    <svg className="size-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" aria-hidden="true">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9.568 3H5.25A2.25 2.25 0 0 0 3 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 0 0 5.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 0 0 9.568 3Z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 6h.008v.008H6V6Z" />
+                    </svg>
+                    {selectedBike.tagName}
+                  </span>
+                  <span className="text-xs text-neutral-400">
+                    {selectedBike.model} · {selectedBike.year}
+                  </span>
+                </div>
+                <p className="mt-2 text-sm font-medium text-white">
+                  {selectedBike.rule ? ruleSummary(selectedBike.rule) : 'This tag has no service rule.'}
+                </p>
+              </div>
+            ) : (
+              <div className="hidden h-full items-center rounded-lg border border-dashed border-neutral-300 p-4 text-sm text-neutral-500 lg:flex">
+                Pick a bike to see its tag and service rule.
+              </div>
+            )}
+          </div>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm">
-            <thead className="border-y border-neutral-200 bg-neutral-50 text-left text-xs font-semibold uppercase tracking-wide text-neutral-500">
-              <tr>
-                {fields.map(({ name, label }) => (
-                  <th key={name} className="px-2 py-3 first:pl-5 last:pr-5 sm:first:pl-6 sm:last:pr-6">
-                    <label htmlFor={name}>
-                      {label} <span className="text-neutral-400">*</span>
-                    </label>
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              <tr className="align-top">
-                {fields.map(({ name, placeholder, type = 'text' }) => (
-                  <td key={name} className="min-w-44 px-2 py-3 first:pl-5 last:pr-5 sm:first:pl-6 sm:last:pr-6">
-                    <input
-                      id={name}
-                      name={name}
-                      type={type}
-                      value={form[name]}
-                      onChange={handleChange}
-                      placeholder={placeholder}
-                      max={type === 'date' ? today() : undefined}
-                      aria-invalid={Boolean(errors[name])}
-                      aria-describedby={errors[name] ? `${name}-error` : undefined}
-                      className={inputClass(errors[name])}
-                    />
-                    {errors[name] && (
-                      <p id={`${name}-error`} className="mt-1 text-xs font-medium text-neutral-900">
-                        {errors[name]}
-                      </p>
-                    )}
-                  </td>
-                ))}
-              </tr>
-            </tbody>
-          </table>
+        <div className="p-5 sm:px-6">
+          <h2 className="text-base font-semibold">Vehicle Details</h2>
+          <div className="mt-4 grid gap-4 sm:grid-cols-3">
+            {detailFields.map(({ name, label, placeholder, readOnly, type = 'text' }) => (
+              <div key={name}>
+                <label htmlFor={name} className="block text-sm font-medium text-neutral-700">
+                  {label} {readOnly ? <span className="text-xs font-normal text-neutral-400">(auto)</span> : <span className="text-neutral-400">*</span>}
+                </label>
+                <input
+                  id={name}
+                  name={name}
+                  type={type}
+                  value={form[name]}
+                  onChange={handleChange}
+                  readOnly={readOnly}
+                  tabIndex={readOnly ? -1 : undefined}
+                  placeholder={placeholder}
+                  max={type === 'date' ? today() : undefined}
+                  aria-invalid={Boolean(errors[name])}
+                  aria-describedby={errors[name] ? `${name}-error` : undefined}
+                  className={`mt-1.5 ${readOnly ? 'block w-full cursor-default rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm text-neutral-700 placeholder:text-neutral-400 focus:outline-none' : inputClass(errors[name])}`}
+                />
+                {errors[name] && (
+                  <p id={`${name}-error`} className="mt-1 text-xs font-medium text-neutral-900">
+                    {errors[name]}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
 
         {isOldVehicle(form.invoiceDate) && (
@@ -230,9 +312,8 @@ function OnboardVehicles() {
             type="submit"
             className="rounded-lg bg-brand px-5 py-2 text-sm font-semibold text-neutral-950 hover:brightness-95 focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:ring-offset-2"
           >
-            Save
+            Onboard
           </button>
-          {message && <p className="text-sm text-neutral-600">{message}</p>}
         </div>
       </form>
     </div>

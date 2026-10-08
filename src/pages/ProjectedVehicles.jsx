@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { formatDate } from '../lib/dates.js'
-import { formatDateRange, formatKmRange, serviceLabel, serviceTypeOf } from '../lib/projection.js'
+import { formatDateRange, formatKmRange, serviceLabel } from '../lib/projection.js'
 import { loadVehicles } from '../lib/storage.js'
 
 function ProjectedVehicles() {
@@ -61,7 +61,7 @@ function ProjectedVehicles() {
                   <td className="px-4 py-3 text-neutral-500">{formatDate(v.onboardedAt)}</td>
                   <td className="px-4 py-3 font-medium text-neutral-900">
                     {v.projection
-                      ? `${serviceLabel(v.projection.serviceNo)} · ${v.projection.serviceType ?? serviceTypeOf(v.projection.serviceNo)}`
+                      ? `${serviceLabel(v.projection.serviceNo)} · ${v.projection.serviceType}`
                       : '—'}
                   </td>
                   <td className="px-4 py-3 text-neutral-700">{v.projection ? formatKmRange(v.projection) : '—'}</td>

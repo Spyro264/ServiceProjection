@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { formatDateRange, formatKmRange, lapseReason, serviceLabel, serviceTypeOf } from '../lib/projection.js'
+import { formatDateRange, formatKmRange, lapseReason, serviceLabel } from '../lib/projection.js'
 import { SERVICE_CENTERS, closeOutcome, closeService, syncService } from '../lib/services.js'
 import { loadJobCards, loadUnplanned, saveJobCards } from '../lib/storage.js'
 import {
@@ -337,7 +337,7 @@ function JobCard({ jobCard, pushed, onUpdate }) {
       <dl className="grid grid-cols-2 gap-4 border-b border-neutral-200 p-5 text-sm">
         <Detail
           label="Service"
-          value={`${serviceLabel(jobCard.serviceNo)} · ${jobCard.serviceType ?? serviceTypeOf(jobCard.serviceNo)}`}
+          value={`${serviceLabel(jobCard.serviceNo)} · ${jobCard.serviceType}`}
         />
         <Detail label="Due KM" value={formatKmRange(jobCard)} />
         <div className="col-span-2">

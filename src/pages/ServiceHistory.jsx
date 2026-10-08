@@ -1,7 +1,8 @@
 import { Fragment, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { formatDate } from '../lib/dates.js'
-import { FREE_SERVICES, formatDateRange, formatKmRange, lapseReason, serviceLabel } from '../lib/projection.js'
+import { formatDateRange, formatKmRange, freeCountOf, lapseReason, serviceLabel } from '../lib/projection.js'
+import { currentRule } from '../lib/services.js'
 import { loadServices, loadUnplanned, loadVehicles } from '../lib/storage.js'
 import { DECISIONS, criticalName, dueRange } from '../lib/unplanned.js'
 
@@ -228,10 +229,10 @@ function PlannedCells({ service: s }) {
   )
 }
 
-function PlannedTab({ services }) {
+function PlannedTab({ services, freeCount }) {
   const count = (status) => services.filter((s) => displayStatus(s) === status).length
   const freeUsed = services.filter(
-    (s) => s.serviceNo <= FREE_SERVICES && ['Completed', 'Lapsed', 'Recorded', 'No Data'].includes(s.status),
+    (s) => s.serviceNo <= freeCount && ['Completed', 'Lapsed', 'Recorded', 'No Data'].includes(s.status),
   ).length
 
   return (
@@ -240,7 +241,7 @@ function PlannedTab({ services }) {
         <Stat label="Completed on time" value={count('Completed')} valueClass="text-green-600" />
         <Stat label="Late Done" value={count('Late Done')} valueClass="text-orange-500" />
         <Stat label="Lapsed" value={count('Lapsed')} valueClass="text-red-600" />
-        <Stat label="Free services used" value={`${freeUsed} / ${FREE_SERVICES}`} />
+        <Stat label="Free services used" value={freeCount ? `${freeUsed} / ${freeCount}` : '—'} />
       </div>
       <HistoryTable
         columns={['#', 'Service', 'Status', 'Due', 'Done']}
@@ -321,6 +322,7 @@ function ServiceHistory() {
   const { regNo } = useParams()
   const [tab, setTab] = useState('Planned')
   const vehicle = loadVehicles().find((v) => v.regNo === regNo)
+  const rule = vehicle && currentRule(vehicle)
   const services = loadServices()
     .filter((s) => s.regNo === regNo)
     .sort((a, b) => a.serviceNo - b.serviceNo || (a.lateFor ? 1 : -1))
@@ -412,7 +414,7 @@ function ServiceHistory() {
         ))}
       </div>
 
-      {tab === 'Planned' ? <PlannedTab services={services} /> : <UnplannedTab rows={unplanned} />}
+      {tab === 'Planned' ? <PlannedTab services={services} freeCount={rule ? freeCountOf(rule) : 0} /> : <UnplannedTab rows={unplanned} />}
       <p className="mt-3 text-xs text-neutral-500">Click a row to see its details.</p>
     </div>
   )

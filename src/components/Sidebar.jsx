@@ -2,7 +2,7 @@ import { NavLink } from 'react-router'
 import { clearAllData } from '../lib/storage.js'
 
 function handleDelete() {
-  if (!window.confirm('Delete all data? This removes every vehicle, master rule, job card and unplanned request.')) return
+  if (!window.confirm('Delete all data? This removes every vehicle, master rule, tag, job card and unplanned request.')) return
   clearAllData()
   console.log('All data deleted')
   window.location.reload()
@@ -44,8 +44,8 @@ function JobCardIcon(props) {
 const navItems = [
   { to: '/onboard-vehicles', label: 'Onboard Vehicles', icon: OnboardIcon },
   { to: '/projected-vehicles', label: 'Projected Vehicles', icon: ListIcon },
-  { to: '/add-master-rule', label: 'Add Master Rule', icon: RuleIcon },
-  { to: '/master-rule-view', label: 'Master Rule View', icon: ListIcon },
+  { to: '/add-master-rule', label: 'Service Plan Setup', icon: RuleIcon },
+  { to: '/master-rule-view', label: 'Service Plans', icon: ListIcon },
   { to: '/job-cards', label: 'Job Card', icon: JobCardIcon },
   { to: '/unplanned-projection', label: 'Unplanned Projection', icon: ListIcon },
 ]

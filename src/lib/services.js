@@ -1,8 +1,10 @@
-import { findRule, projectService, serviceLabel, serviceTypeOf } from './projection.js'
+import { projectService, serviceLabel, serviceTypeOf } from './projection.js'
 import {
+  loadBikes,
   loadJobCards,
   loadMasterRules,
   loadServices,
+  loadTags,
   loadVehicles,
   saveJobCards,
   saveServices,
@@ -62,7 +64,20 @@ export function scheduleService(vehicle, projection) {
   return jobCard
 }
 
-const noDataRows = (vehicle, count, now) =>
+// The bike's tag (from the bikes table) and that tag's service rule. Either is undefined when missing.
+export function tagRuleFor(regNo) {
+  const bike = loadBikes().find((b) => b.regNo === regNo)
+  const tag = bike?.tagId ? loadTags().find((t) => t.id === bike.tagId) : undefined
+  const rule = tag ? loadMasterRules().find((r) => r.id === tag.ruleId) : undefined
+  return { tag, rule }
+}
+
+// Services follow the bike's tag. Vehicles onboarded before tags fall back to the rule saved on them.
+export function currentRule(vehicle) {
+  return tagRuleFor(vehicle.regNo).rule ?? loadMasterRules().find((r) => r.id === vehicle.ruleId)
+}
+
+const noDataRows = (vehicle, rule, count, now) =>
   Array.from({ length: count }, (_, i) => ({
     id: crypto.randomUUID(),
     vehicleId: vehicle.id,
@@ -70,15 +85,15 @@ const noDataRows = (vehicle, count, now) =>
     model: vehicle.model,
     projectedAt: now,
     serviceNo: i + 1,
-    serviceType: serviceTypeOf(i + 1),
+    serviceType: serviceTypeOf(i + 1, rule),
     status: 'No Data',
   }))
 
 // Older vehicles: slots before the last service have no data; the last service is entered at onboarding.
-export function recordPreviousServices(vehicle, { serviceNo, kmDoneAt, doneDate }) {
+export function recordPreviousServices(vehicle, rule, { serviceNo, kmDoneAt, doneDate }) {
   const now = new Date().toISOString()
   const rows = [
-    ...noDataRows(vehicle, serviceNo - 1, now),
+    ...noDataRows(vehicle, rule, serviceNo - 1, now),
     {
       id: crypto.randomUUID(),
       vehicleId: vehicle.id,
@@ -86,7 +101,7 @@ export function recordPreviousServices(vehicle, { serviceNo, kmDoneAt, doneDate 
       model: vehicle.model,
       projectedAt: now,
       serviceNo,
-      serviceType: serviceTypeOf(serviceNo),
+      serviceType: serviceTypeOf(serviceNo, rule),
       kmDoneAt,
       doneDate,
       status: 'Recorded',
@@ -98,9 +113,9 @@ export function recordPreviousServices(vehicle, { serviceNo, kmDoneAt, doneDate 
 }
 
 // Older vehicles with no service history: past services (estimated from age) are saved as No Data.
-export function recordEstimatedServices(vehicle, count) {
+export function recordEstimatedServices(vehicle, rule, count) {
   if (count === 0) return
-  const rows = noDataRows(vehicle, count, new Date().toISOString())
+  const rows = noDataRows(vehicle, rule, count, new Date().toISOString())
   saveServices([...loadServices(), ...rows])
   console.log('Estimated past services recorded', rows)
 }
@@ -119,7 +134,7 @@ export function syncService(jobCard) {
           regNo: jobCard.regNo,
           model: jobCard.model,
           serviceNo: jobCard.serviceNo,
-          serviceType: jobCard.serviceType ?? serviceTypeOf(jobCard.serviceNo),
+          serviceType: jobCard.serviceType,
           kmFrom: jobCard.kmFrom,
           kmTo: jobCard.kmTo,
           dueDateFrom: jobCard.dueDateFrom,
@@ -155,6 +170,8 @@ export function closeOutcome(jobCard, { kmDoneAt, doneDate }) {
 export function closeService(jobCard) {
   syncService(jobCard)
 
+  const vehicle = loadVehicles().find((v) => v.id === jobCard.vehicleId)
+  const rule = vehicle && currentRule(vehicle)
   let nextNo = jobCard.serviceNo + 1
   let lateServiceNo = null
   if (jobCard.status === 'Lapsed') {
@@ -167,7 +184,7 @@ export function closeService(jobCard) {
         regNo: jobCard.regNo,
         model: jobCard.model,
         serviceNo: lateServiceNo,
-        serviceType: serviceTypeOf(lateServiceNo),
+        serviceType: rule ? serviceTypeOf(lateServiceNo, rule) : 'PMS',
         lateFor: jobCard.serviceNo,
         basis: `Late work for the lapsed ${serviceLabel(jobCard.serviceNo)}. It takes the next slot.`,
         jobCardId: jobCard.id,
@@ -182,12 +199,7 @@ export function closeService(jobCard) {
     nextNo += 1
   }
 
-  const vehicle = loadVehicles().find((v) => v.id === jobCard.vehicleId)
-  if (!vehicle) return { lateServiceNo, nextJobCard: null }
-  // Use the current master rule for the model, so a newer rule takes effect on the next projection.
-  const rules = loadMasterRules()
-  const rule = findRule(rules, vehicle.model, vehicle.invoiceDate) ?? rules.find((r) => r.id === vehicle.ruleId)
-  if (!rule) return { lateServiceNo, nextJobCard: null }
+  if (!vehicle || !rule) return { lateServiceNo, nextJobCard: null }
 
   const projection = projectService(rule, vehicle.invoiceDate, nextNo, jobCard)
   return { lateServiceNo, nextJobCard: scheduleService(vehicle, projection) }

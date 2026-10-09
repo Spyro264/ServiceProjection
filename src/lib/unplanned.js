@@ -2,6 +2,7 @@ import { addDays, daysBetween, formatDate, today } from './dates.js'
 import { serviceLabel } from './projection.js'
 import { closeOutcome, closeService, syncService } from './services.js'
 import { loadJobCards, loadUnplanned, saveJobCards, saveUnplanned } from './storage.js'
+import { logTable } from './log.js'
 
 // Picking one of these makes the request critical. Anything typed by hand is non-critical.
 export const CRITICAL_SERVICES = [
@@ -95,7 +96,7 @@ export function raiseUnplanned(vehicle, { items, serviceDays, serviceCenter }) {
     saveJobCards(jobCards.map((jc) => (jc.id === planned.id ? { ...jc, pulledForwardBy: row.unplannedNo } : jc)))
   }
 
-  console.log('Unplanned request raised', row)
+  logTable('Unplanned request raised', row)
   return { row, daysToPlanned }
 }
 
@@ -137,7 +138,7 @@ export function acceptUnplanned(id) {
     syncService(plannedJobCard)
     startPushed(plannedJobCard)
   }
-  console.log('Unplanned request accepted', row)
+  logTable('Unplanned request accepted', row)
   return row
 }
 
@@ -147,7 +148,7 @@ export function acceptUnplanned(id) {
 // Returns { row, plannedJobCard, pushed, lateServiceNo, nextJobCard }.
 export function closeUnplanned(id, { kmDoneAt, doneDate }) {
   const row = updateUnplanned(id, { kmDoneAt, doneDate, status: 'Completed', closedAt: new Date().toISOString() })
-  console.log('Unplanned request completed', row)
+  logTable('Unplanned request completed', row)
   if (row.decision !== DECISIONS.pulledForward) return { row }
 
   const jobCards = loadJobCards().map((jc) =>

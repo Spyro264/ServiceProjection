@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { daysBetween, formatDate, today } from '../lib/dates.js'
-import { projectFromAge, projectService, ruleSummary, serviceLabel } from '../lib/projection.js'
+import { projectFromAge, projectService, ruleTitle, serviceLabel } from '../lib/projection.js'
 import { recordEstimatedServices, recordPreviousServices, scheduleService, tagRuleFor } from '../lib/services.js'
 import { loadBikes, loadMasterRules, loadTags, loadVehicles, saveVehicles } from '../lib/storage.js'
+import { logTable } from '../lib/log.js'
 
 // Vehicle details below the bike picker. Model is filled from the selected bike.
 const detailFields = [
@@ -59,7 +60,7 @@ function validate(form, vehicles, { tag, rule }) {
   }
   // The service rule comes from the bike's tag, so the bike must be tagged first.
   if (!errors.regNo && !tag) {
-    errors.regNo = 'No tag assigned to this bike. Assign a tag in Service Plan Setup, then onboard.'
+    errors.regNo = 'No tag assigned to this bike. Assign a tag on the Tags page, then onboard.'
   } else if (!errors.regNo && !rule) {
     errors.regNo = "This bike's tag has no service rule."
   }
@@ -107,7 +108,8 @@ function OnboardVehicles() {
     const tagRule = tagRuleFor(normalizeRegNo(form.regNo))
     const { tag, rule } = tagRule
     const nextErrors = validate(form, vehicles, tagRule)
-    console.log('Onboard vehicle submitted', { form, errors: nextErrors })
+    logTable('Onboard vehicle submitted', form)
+    logTable('Errors', nextErrors)
     setErrors(nextErrors)
     if (Object.keys(nextErrors).length > 0) return
 
@@ -132,11 +134,12 @@ function OnboardVehicles() {
       onboardedAt: new Date().toISOString(),
     }
     saveVehicles([vehicle, ...vehicles])
-    console.log('Onboard vehicle saved', vehicle)
+    logTable('Onboard vehicle saved', vehicle)
 
     if (lastService) recordPreviousServices(vehicle, rule, lastService)
     if (estimate) recordEstimatedServices(vehicle, rule, estimate.pastCount)
-    const jobCard = scheduleService(vehicle, projection)
+    // projection is null when the rule's schedule has no service left for this vehicle.
+    const jobCard = projection && scheduleService(vehicle, projection)
 
     setForm(emptyForm)
     setMessage(
@@ -148,7 +151,11 @@ function OnboardVehicles() {
               ? ` No service history entered, so ${estimate.pastCount} past ${estimate.pastCount === 1 ? 'service was' : 'services were'} estimated from the vehicle's age (${daysBetween(form.invoiceDate, today())} days) and saved as No Data.`
               : ` No service history entered, and no service is past yet for the vehicle's age (${daysBetween(form.invoiceDate, today())} days).`
             : ''
-      } ${serviceLabel(projection.serviceNo)} projected and job card ${jobCard.jobCardNo} created.`,
+      } ${
+        jobCard
+          ? `${serviceLabel(projection.serviceNo)} projected and job card ${jobCard.jobCardNo} created.`
+          : 'No service projected: the rule has no services left for this vehicle.'
+      }`,
     )
   }
 
@@ -202,7 +209,7 @@ function OnboardVehicles() {
                 </p>
               ) : (
                 bikeOptions.length === 0 && (
-                  <p className="mt-1 text-xs text-neutral-500">Assign a tag in Service Plan Setup first.</p>
+                  <p className="mt-1 text-xs text-neutral-500">Assign a tag on the Tags page first.</p>
                 )
               )}
             </div>
@@ -222,7 +229,7 @@ function OnboardVehicles() {
                   </span>
                 </div>
                 <p className="mt-2 text-sm font-medium text-white">
-                  {selectedBike.rule ? ruleSummary(selectedBike.rule) : 'This tag has no service rule.'}
+                  {selectedBike.rule ? ruleTitle(selectedBike.rule) : 'This tag has no service rule.'}
                 </p>
               </div>
             ) : (

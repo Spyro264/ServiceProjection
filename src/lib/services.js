@@ -10,6 +10,7 @@ import {
   saveServices,
   saveVehicles,
 } from './storage.js'
+import { logTable } from './log.js'
 
 export const SERVICE_CENTERS = ['Hub', 'Warehouse', 'Service Station']
 
@@ -59,8 +60,8 @@ export function scheduleService(vehicle, projection) {
   const vehicles = loadVehicles().map((v) => (v.id === vehicle.id ? { ...v, projection } : v))
   saveVehicles(vehicles)
 
-  console.log('Job card created', jobCard)
-  console.log('Service projected', service)
+  logTable('Job card created', jobCard)
+  logTable('Service projected', service)
   return jobCard
 }
 
@@ -109,7 +110,7 @@ export function recordPreviousServices(vehicle, rule, { serviceNo, kmDoneAt, don
     },
   ]
   saveServices([...loadServices(), ...rows])
-  console.log('Previous services recorded', rows)
+  logTable('Previous services recorded', rows)
 }
 
 // Older vehicles with no service history: past services (estimated from age) are saved as No Data.
@@ -117,7 +118,7 @@ export function recordEstimatedServices(vehicle, rule, count) {
   if (count === 0) return
   const rows = noDataRows(vehicle, rule, count, new Date().toISOString())
   saveServices([...loadServices(), ...rows])
-  console.log('Estimated past services recorded', rows)
+  logTable('Estimated past services recorded', rows)
 }
 
 // Copies the job card's latest details onto its service row.
@@ -201,6 +202,7 @@ export function closeService(jobCard) {
 
   if (!vehicle || !rule) return { lateServiceNo, nextJobCard: null }
 
+  // The job card carries both the actual service (km / date done) and its projected window.
   const projection = projectService(rule, vehicle.invoiceDate, nextNo, jobCard)
-  return { lateServiceNo, nextJobCard: scheduleService(vehicle, projection) }
+  return { lateServiceNo, nextJobCard: projection && scheduleService(vehicle, projection) }
 }

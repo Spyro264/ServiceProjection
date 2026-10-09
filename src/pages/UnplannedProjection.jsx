@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { SERVICE_CENTERS } from '../lib/services.js'
 import { loadVehicles } from '../lib/storage.js'
 import { CRITICAL_SERVICES, criticalName, describeDecision, raiseUnplanned } from '../lib/unplanned.js'
+import { logTable } from '../lib/log.js'
 
 const emptyForm = { regNo: '', items: [], serviceDays: '', serviceCenter: '' }
 
@@ -156,7 +157,8 @@ function UnplannedProjection() {
     e.preventDefault()
     const vehicle = loadVehicles().find((v) => v.regNo === normalizeRegNo(form.regNo))
     const nextErrors = validate(form, vehicle)
-    console.log('Unplanned request submitted', { form, errors: nextErrors })
+    logTable('Unplanned request submitted', form)
+    logTable('Errors', nextErrors)
     setErrors(nextErrors)
     if (Object.keys(nextErrors).length > 0) return
 

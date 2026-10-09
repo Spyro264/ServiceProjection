@@ -12,6 +12,7 @@ import {
   pushedTo,
   startPushed,
 } from '../lib/unplanned.js'
+import { logTable } from '../lib/log.js'
 
 const SERVICE_ITEMS = ['Oil Change', 'Air Filter']
 const FILTERS = ['Pending', 'Ongoing']
@@ -372,7 +373,7 @@ function closeMessage(jobCard, lateServiceNo, nextJobCard) {
       : `${jobCard.jobCardNo} lapsed. Service was done ${lapseReason(jobCard)}. ${serviceLabel(jobCard.serviceNo)} marked lapsed and this work recorded as the ${serviceLabel(lateServiceNo)}.`
   const next = nextJobCard
     ? ` ${serviceLabel(nextJobCard.serviceNo)} projected and job card ${nextJobCard.jobCardNo} created.`
-    : ' Next service not projected: no master rule found for this vehicle.'
+    : ' Next service not projected: no master rule found for this vehicle, or its rule has no services left.'
   return result + next
 }
 
@@ -391,7 +392,7 @@ function JobCards() {
     const updated = jobCards.map((jc) => (jc.id === id ? { ...jc, ...changes } : jc))
     const jobCard = updated.find((jc) => jc.id === id)
     saveJobCards(updated)
-    console.log(`Job card ${changes.status.toLowerCase()}`, jobCard)
+    logTable(`Job card ${changes.status.toLowerCase()}`, jobCard)
 
     if (changes.status === 'Ongoing') {
       syncService(jobCard)

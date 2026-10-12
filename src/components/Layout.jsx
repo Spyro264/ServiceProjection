@@ -2,18 +2,29 @@ import { useState } from 'react'
 import { Outlet } from 'react-router'
 import Sidebar from './Sidebar.jsx'
 
+// Large screens show the sidebar beside the page (it can be hidden); smaller screens open it as a drawer.
+const isLargeScreen = () => window.matchMedia('(min-width: 1024px)').matches
+
 function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [sidebarHidden, setSidebarHidden] = useState(false)
 
   return (
     <div className="min-h-screen bg-neutral-50 text-neutral-900">
-      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <Sidebar
+        open={sidebarOpen}
+        hidden={sidebarHidden}
+        onClose={() => (isLargeScreen() ? setSidebarHidden(true) : setSidebarOpen(false))}
+        onNavigate={() => setSidebarOpen(false)}
+      />
 
-      <div className="lg:pl-64">
-        <header className="sticky top-0 z-20 flex h-14 items-center gap-3 border-b border-neutral-200 bg-white px-4 lg:hidden">
+      <div className={sidebarHidden ? '' : 'lg:pl-64'}>
+        <header
+          className={`sticky top-0 z-20 flex h-14 items-center gap-3 border-b border-neutral-200 bg-white px-4 ${sidebarHidden ? '' : 'lg:hidden'}`}
+        >
           <button
             type="button"
-            onClick={() => setSidebarOpen(true)}
+            onClick={() => (isLargeScreen() ? setSidebarHidden(false) : setSidebarOpen(true))}
             className="rounded-md p-2 text-neutral-700 hover:bg-neutral-100"
             aria-label="Open menu"
           >

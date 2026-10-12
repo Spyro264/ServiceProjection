@@ -61,7 +61,7 @@ const navItems = [
   { to: '/unplanned-projection', label: 'Unplanned Projection', icon: ListIcon },
 ]
 
-function Sidebar({ open, onClose }) {
+function Sidebar({ open, hidden, onClose, onNavigate }) {
   return (
     <>
       {open && (
@@ -69,9 +69,9 @@ function Sidebar({ open, onClose }) {
       )}
 
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex w-64 flex-col bg-neutral-950 text-neutral-300 transition-transform duration-200 lg:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-40 flex w-64 flex-col bg-neutral-950 text-neutral-300 transition-transform duration-200 ${
           open ? 'translate-x-0' : '-translate-x-full'
-        }`}
+        } ${hidden ? 'lg:-translate-x-full' : 'lg:translate-x-0'}`}
       >
         <div className="flex h-16 items-center gap-3 border-b border-white/10 px-5">
           <div className="flex size-9 items-center justify-center rounded-lg bg-brand text-sm font-bold text-neutral-950">
@@ -81,8 +81,8 @@ function Sidebar({ open, onClose }) {
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md p-1 text-neutral-400 hover:bg-white/5 hover:text-white lg:hidden"
-            aria-label="Close menu"
+            className="rounded-md p-1 text-neutral-400 hover:bg-white/5 hover:text-white"
+            aria-label="Hide menu"
           >
             <svg className="size-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" aria-hidden="true">
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
@@ -95,7 +95,7 @@ function Sidebar({ open, onClose }) {
             <NavLink
               key={to}
               to={to}
-              onClick={onClose}
+              onClick={onNavigate}
               className={({ isActive }) =>
                 `flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
                   isActive ? 'bg-brand text-neutral-950' : 'hover:bg-white/5 hover:text-white'

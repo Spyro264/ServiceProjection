@@ -21,7 +21,7 @@ function RulePlanCard({ rule, tagName, bikeCount }) {
           <li key={i} className="relative flex items-center gap-3">
             <span
               className={`flex size-6 shrink-0 items-center justify-center rounded-full text-[0.625rem] font-semibold ${
-                entry.base !== 'invoice' ? 'bg-brand text-neutral-950' : 'border border-white/20 bg-neutral-950 text-white'
+                entry.recursive ? 'bg-brand text-neutral-950' : 'border border-white/20 bg-neutral-950 text-white'
               }`}
             >
               {i + 1}
@@ -33,10 +33,8 @@ function RulePlanCard({ rule, tagName, bikeCount }) {
               <p className="text-xs text-neutral-500">{entryDetail(entry)}</p>
             </div>
             <p className="text-right text-sm tabular-nums">
-              {entry.base !== 'invoice' && '+'}
               {num(entry.kmMin)}–{num(entry.kmMax)} km
               <span className="block text-xs text-neutral-500">
-                {entry.base !== 'invoice' && '+'}
                 {num(entry.daysMin)}–{num(entry.daysMax)} days
               </span>
             </p>

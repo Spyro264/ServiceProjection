@@ -1,74 +1,21 @@
 import { useState } from 'react'
 import { Link } from 'react-router'
 import RulePlanCard from '../components/RulePlanCard.jsx'
-import { slotLabels, windowOf } from '../lib/projection.js'
-import { addMasterRule, loadBikes, loadMasterRules, loadServiceRuleItems, loadServiceRules, loadTags, saveTags } from '../lib/storage.js'
+import ServiceEntryCard from '../components/ServiceEntryCard.jsx'
+import ServicePreview from '../components/ServicePreview.jsx'
+import { slotLabels } from '../lib/projection.js'
+import { emptySchedule, errorKey, newEntry, scheduleFromForm, validateSchedule } from '../lib/ruleForm.js'
+import {
+  addMasterRule,
+  loadBikes,
+  loadMasterRules,
+  loadServiceRuleItems,
+  loadServiceRules,
+  loadTags,
+  loadTypes,
+  saveTags,
+} from '../lib/storage.js'
 import { logTable } from '../lib/log.js'
-
-// Example values: the 1st service within 30 days / 1,000 km of the invoice date with a ±5 day and ±200 km buffer,
-// later ones 60 days / 4,000 km after the previous service with a ±15 day and ±500 km buffer.
-const invoiceExample = { days: 30, km: 1000, daysLower: 5, daysUpper: 5, kmLower: 200, kmUpper: 200 }
-const previousExample = { days: 60, km: 4000, daysLower: 15, daysUpper: 15, kmLower: 500, kmUpper: 500 }
-
-const idealFields = [
-  { name: 'days', label: 'Service Active After (Days)' },
-  { name: 'km', label: 'Service Due After (km)' },
-]
-
-// The 1st service is always within 30 days of the invoice date.
-const FIRST_SERVICE_DAYS = '30'
-const daysLabel = (i) => (i === 0 ? 'Service Within (Days)' : 'Service Active After (Days)')
-
-// Lower limit is taken off the ideal value, upper limit is added to it.
-const bufferGroups = [
-  {
-    title: 'Buffer Duration',
-    fields: [
-      { name: 'daysLower', label: 'Lower Limit (Days)' },
-      { name: 'daysUpper', label: 'Upper Limit (Days)' },
-    ],
-  },
-  {
-    title: 'Buffer Odometer Reading',
-    fields: [
-      { name: 'kmLower', label: 'Lower Limit (km)' },
-      { name: 'kmUpper', label: 'Upper Limit (km)' },
-    ],
-  },
-]
-
-const bufferFields = bufferGroups.flatMap((group) => group.fields)
-
-const numberFields = [...idealFields, ...bufferFields]
-
-// What a recursive service is counted from. A non-recursive service is counted from the previous service's actual odo / date.
-const baseOptions = [
-  { value: 'actual', label: 'Previous service (actual odo / date)' },
-  { value: 'projected', label: 'Previous projected service' },
-]
-
-// One service in the form. Values are strings while editing. The 1st service is always Free, from the invoice date;
-// every later one is counted from the previous service.
-const newEntry = (type, base) => ({
-  key: crypto.randomUUID(),
-  type,
-  days: '',
-  km: '',
-  daysLower: '',
-  daysUpper: '',
-  kmLower: '',
-  kmUpper: '',
-  base,
-  recursive: 'no',
-  count: '',
-  kmInterval: '',
-})
-
-const emptySchedule = () => [{ ...newEntry('Free', 'invoice'), days: FIRST_SERVICE_DAYS }]
-
-const errorKey = (entry, field) => `${entry.key}.${field}`
-
-const isNumberAtLeast = (value, min) => value.trim() !== '' && Number(value) >= min
 
 function validate(ruleName, schedule) {
   const errors = {}
@@ -77,67 +24,7 @@ function validate(ruleName, schedule) {
   else if (loadMasterRules().some((rule) => rule.name?.toLowerCase() === name.toLowerCase())) {
     errors.ruleName = 'This rule name is already used'
   }
-
-  schedule.forEach((entry, i) => {
-    const fail = (field, text) => {
-      errors[errorKey(entry, field)] = text
-    }
-    if (!entry.type.trim()) fail('type', 'Required')
-    for (const { name: field } of idealFields) {
-      if (!entry[field].trim()) fail(field, 'Required')
-      else if (!isNumberAtLeast(entry[field], 1)) fail(field, 'Must be a number above 0')
-    }
-    for (const { name: field } of bufferFields) {
-      if (!entry[field].trim()) fail(field, 'Required')
-      else if (!isNumberAtLeast(entry[field], 0)) fail(field, 'Must be 0 or more')
-    }
-    // The window cannot start below 0.
-    for (const [lower, ideal, label] of [
-      ['daysLower', 'days', daysLabel(i).replace(' (Days)', '')],
-      ['kmLower', 'km', 'Service Due After'],
-    ]) {
-      if (!errors[errorKey(entry, lower)] && !errors[errorKey(entry, ideal)] && Number(entry[lower]) > Number(entry[ideal])) {
-        fail(lower, `Cannot be more than ${label}`)
-      }
-    }
-    if (entry.base !== 'invoice' && entry.recursive === 'yes') {
-      const count = Number(entry.count)
-      if (!entry.count.trim() || !Number.isInteger(count) || count < 2) fail('count', 'Enter a whole number, 2 or more')
-      if (!entry.kmInterval.trim()) fail('kmInterval', 'Required')
-      else if (!isNumberAtLeast(entry.kmInterval, 1)) fail('kmInterval', 'Must be a number above 0')
-    }
-  })
-  return errors
-}
-
-// Rule schedule from the form; serviceNo is the service's position (1, 2, 3 ...).
-// Values are read leniently so the service labels can update while typing.
-function scheduleFromForm(schedule) {
-  return schedule.map((entry, i) => {
-    const { type, base, recursive, count, kmInterval } = entry
-    const repeats = base !== 'invoice' && recursive === 'yes'
-    return {
-      serviceNo: i + 1,
-      type: type.trim(),
-      ...Object.fromEntries(numberFields.map(({ name }) => [name, Number(entry[name])])),
-      base: base === 'invoice' || repeats ? base : 'actual',
-      recursive: repeats,
-      count: repeats ? Math.max(1, Math.floor(Number(count)) || 1) : 1,
-      ...(repeats && { kmInterval: Number(kmInterval) }),
-    }
-  })
-}
-
-const num = (value) => value.toLocaleString('en-IN')
-
-// e.g. "Due 15–45 days and 500–1,500 km after the invoice date." once all the numbers are filled in.
-function dueText(entry, i) {
-  const after = i === 0 ? 'the invoice date' : 'the previous service'
-  if (!numberFields.every(({ name }) => isNumberAtLeast(entry[name], 0))) {
-    return `Days and km are counted from ${after}.`
-  }
-  const { daysMin, daysMax, kmMin, kmMax } = windowOf(Object.fromEntries(numberFields.map(({ name }) => [name, Number(entry[name])])))
-  return `Due ${num(daysMin)}–${num(daysMax)} days and ${num(kmMin)}–${num(kmMax)} km after ${after}.`
+  return { ...errors, ...validateSchedule(schedule) }
 }
 
 const steps = [
@@ -208,8 +95,10 @@ function AddMasterRule() {
   const [ruleName, setRuleName] = useState('')
   const [schedule, setSchedule] = useState(emptySchedule)
   const [errors, setErrors] = useState({})
+  const [showPreview, setShowPreview] = useState(false)
   const [openTags, setOpenTags] = useState(loadOpenTags)
   const [bikes] = useState(loadBikes)
+  const [types] = useState(loadTypes)
   const [tagId, setTagId] = useState('')
   const [tagError, setTagError] = useState('')
   const [message, setMessage] = useState('')
@@ -218,6 +107,8 @@ function AddMasterRule() {
   const bikeCountOf = (tag) => bikes.filter((bike) => bike.tagId === tag.id).length
 
   const labels = slotLabels(scheduleFromForm(schedule))
+  // The preview needs every number filled in correctly; the type is only a label, so it is not needed.
+  const previewReady = Object.keys(validateSchedule(schedule)).every((key) => key.endsWith('.type'))
 
   function handleEntryChange(entry, field, value) {
     setSchedule((prev) => prev.map((e) => (e.key === entry.key ? { ...e, [field]: value } : e)))
@@ -225,7 +116,7 @@ function AddMasterRule() {
     setMessage('')
   }
 
-  // A new service is counted from the previous service by default.
+  // A new service's repeats (if made recursive) are counted from the previous service by default.
   function handleAddNext() {
     setSchedule((prev) => [...prev, newEntry('', 'actual')])
     setMessage('')
@@ -272,203 +163,89 @@ function AddMasterRule() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl">
-      <div className="mb-6">
+    <div className={`mx-auto ${step === 0 && showPreview ? 'max-w-[96rem]' : 'max-w-6xl'}`}>
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold tracking-tight">Service Plan Setup</h1>
+        {step === 0 && (
+          <button
+            type="button"
+            onClick={() => setShowPreview((prev) => !prev)}
+            aria-expanded={showPreview}
+            className={`${secondaryButton} inline-flex items-center gap-2`}
+          >
+            <svg className="size-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+            </svg>
+            {showPreview ? 'Hide preview' : 'Show preview'}
+          </button>
+        )}
       </div>
 
       <Stepper current={step} />
 
       {step === 0 && (
-        <form onSubmit={handleRuleNext} noValidate className="space-y-4">
-          <div className="rounded-xl border border-neutral-200 bg-white p-5 sm:px-6">
-            <div className="max-w-sm">
-              <label htmlFor="ruleName" className="block text-sm font-medium text-neutral-700">
-                Rule Name <span className="text-neutral-400">*</span>
-              </label>
-              <input
-                id="ruleName"
-                type="text"
-                value={ruleName}
-                onChange={(e) => {
-                  setRuleName(e.target.value)
-                  setErrors((prev) => ({ ...prev, ruleName: undefined }))
-                  setMessage('')
-                }}
-                placeholder="Activa Standard Plan"
-                aria-invalid={Boolean(errors.ruleName)}
-                aria-describedby={errors.ruleName ? 'ruleName-error' : undefined}
-                className={inputClass(errors.ruleName)}
-              />
-              {errors.ruleName && (
-                <p id="ruleName-error" className="mt-1 text-xs font-medium text-neutral-900">
-                  {errors.ruleName}
-                </p>
-              )}
-            </div>
-          </div>
-
-          {schedule.map((entry, i) => {
-            const fromInvoice = entry.base === 'invoice'
-            const example = fromInvoice ? invoiceExample : previousExample
-            const fieldError = (field) => errors[errorKey(entry, field)]
-            const fieldId = (field) => `${entry.key}-${field}`
-            const errorText = (field) =>
-              fieldError(field) && (
-                <p id={`${fieldId(field)}-error`} className="mt-1 text-xs font-medium text-neutral-900">
-                  {fieldError(field)}
-                </p>
-              )
-            const label = (field, text) => (
-              <label htmlFor={fieldId(field)} className="block text-sm font-medium text-neutral-700">
-                {text} <span className="text-neutral-400">*</span>
-              </label>
-            )
-            const numberInput = (field, placeholder, min = 0) => (
-              <input
-                id={fieldId(field)}
-                type="number"
-                inputMode="numeric"
-                min={min}
-                value={entry[field]}
-                onChange={(e) => handleEntryChange(entry, field, e.target.value)}
-                placeholder={placeholder}
-                aria-invalid={Boolean(fieldError(field))}
-                aria-describedby={fieldError(field) ? `${fieldId(field)}-error` : undefined}
-                className={inputClass(fieldError(field))}
-              />
-            )
-
-            return (
-              <div key={entry.key} className="rounded-xl border border-neutral-200 bg-white p-5 sm:px-6">
-                <div className="-mx-5 -mt-5 rounded-t-xl bg-brand px-5 py-3 sm:-mx-6 sm:px-6">
-                  <h2 className="text-base font-semibold text-neutral-950">{labels[i]} Rule</h2>
-                  <p className="mt-0.5 text-sm text-neutral-800">{dueText(entry, i)}</p>
-                </div>
-
-                <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-                  <div>
-                    {label('type', 'Type')}
-                    <input
-                      id={fieldId('type')}
-                      type="text"
-                      value={entry.type}
-                      onChange={(e) => handleEntryChange(entry, 'type', e.target.value)}
-                      readOnly={i === 0}
-                      placeholder="PMS"
-                      aria-invalid={Boolean(fieldError('type'))}
-                      aria-describedby={fieldError('type') ? `${fieldId('type')}-error` : undefined}
-                      className={`${inputClass(fieldError('type'))} read-only:bg-neutral-100 read-only:text-neutral-500`}
-                    />
-                    {errorText('type')}
-                  </div>
-
-                  {idealFields.map(({ name, label: text }) => (
-                    <div key={name}>
-                      {label(name, name === 'days' ? daysLabel(i) : text)}
-                      {numberInput(name, String(example[name]), 1)}
-                      {errorText(name)}
-                    </div>
-                  ))}
-                </div>
-
-                <div className="mt-4 grid gap-4 lg:grid-cols-2">
-                  {bufferGroups.map(({ title, fields }) => (
-                    <fieldset key={title} className="rounded-lg border border-neutral-200 p-4">
-                      <legend className="px-1 text-sm font-semibold text-neutral-900">{title}</legend>
-                      <div className="grid gap-4 sm:grid-cols-2">
-                        {fields.map(({ name, label: text }) => (
-                          <div key={name}>
-                            {label(name, text)}
-                            {numberInput(name, String(example[name]))}
-                            {errorText(name)}
-                          </div>
-                        ))}
-                      </div>
-                    </fieldset>
-                  ))}
-                </div>
-
-                <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-                  {/* The 1st service is counted from the invoice date, so it is always No and locked. */}
-                  <fieldset disabled={i === 0}>
-                    <legend className="block text-sm font-medium text-neutral-700">
-                      Recursive <span className="text-neutral-400">*</span>
-                    </legend>
-                    <div className="mt-2.5 flex gap-4">
-                      {['yes', 'no'].map((value) => (
-                        <label
-                          key={value}
-                          className={`flex items-center gap-2 text-sm capitalize ${i === 0 ? 'text-neutral-400' : 'text-neutral-900'}`}
-                        >
-                          <input
-                            type="radio"
-                            name={fieldId('recursive')}
-                            value={value}
-                            checked={entry.recursive === value}
-                            onChange={() => handleEntryChange(entry, 'recursive', value)}
-                            className="size-4 accent-neutral-900"
-                          />
-                          {value}
-                        </label>
-                      ))}
-                    </div>
-                  </fieldset>
-
-                  {entry.recursive === 'yes' && (
-                    <>
-                      <div>
-                        {label('count', 'Count')}
-                        {numberInput('count', '5', 2)}
-                        {errorText('count')}
-                      </div>
-
-                      <div>
-                        {label('kmInterval', 'Odometer Interval (km)')}
-                        {numberInput('kmInterval', '4000', 1)}
-                        {errorText('kmInterval')}
-                      </div>
-
-                      <fieldset className="sm:col-span-2">
-                        <legend className="block text-sm font-medium text-neutral-700">
-                          Project from <span className="text-neutral-400">*</span>
-                        </legend>
-                        <div className="mt-2.5 flex flex-wrap gap-x-5 gap-y-2">
-                          {baseOptions.map(({ value, label: text }) => (
-                            <label key={value} className="flex items-center gap-2 text-sm text-neutral-900">
-                              <input
-                                type="radio"
-                                name={fieldId('base')}
-                                value={value}
-                                checked={entry.base === value}
-                                onChange={() => handleEntryChange(entry, 'base', value)}
-                                className="size-4 accent-neutral-900"
-                              />
-                              {text}
-                            </label>
-                          ))}
-                        </div>
-                      </fieldset>
-                    </>
-                  )}
-                </div>
+        <div className={showPreview ? 'grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_26rem]' : ''}>
+          <form onSubmit={handleRuleNext} noValidate className="space-y-4">
+            <div className="rounded-xl border border-neutral-200 bg-white p-5 sm:px-6">
+              <div className="max-w-sm">
+                <label htmlFor="ruleName" className="block text-sm font-medium text-neutral-700">
+                  Rule Name <span className="text-neutral-400">*</span>
+                </label>
+                <input
+                  id="ruleName"
+                  type="text"
+                  value={ruleName}
+                  onChange={(e) => {
+                    setRuleName(e.target.value)
+                    setErrors((prev) => ({ ...prev, ruleName: undefined }))
+                    setMessage('')
+                  }}
+                  placeholder="Activa Standard Plan"
+                  aria-invalid={Boolean(errors.ruleName)}
+                  aria-describedby={errors.ruleName ? 'ruleName-error' : undefined}
+                  className={inputClass(errors.ruleName)}
+                />
+                {errors.ruleName && (
+                  <p id="ruleName-error" className="mt-1 text-xs font-medium text-neutral-900">
+                    {errors.ruleName}
+                  </p>
+                )}
               </div>
-            )
-          })}
+            </div>
 
-          <div className="flex flex-wrap items-center gap-3">
-            <button type="button" onClick={handleAddNext} className={`${secondaryButton} inline-flex items-center gap-2`}>
-              <svg className="size-4" fill="none" viewBox="0 0 24 24" strokeWidth={2.2} stroke="currentColor" aria-hidden="true">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-              </svg>
-              Add Rule
-            </button>
-            <button type="submit" className={primaryButton}>
-              Next
-            </button>
-            {message && <p className="text-sm text-neutral-600">{message}</p>}
-          </div>
-        </form>
+            {schedule.map((entry, i) => (
+              <ServiceEntryCard
+                key={entry.key}
+                entry={entry}
+                i={i}
+                heading={`${labels[i]} Rule`}
+                errors={errors}
+                types={types}
+                onChange={(field, value) => handleEntryChange(entry, field, value)}
+              />
+            ))}
+
+            <div className="flex flex-wrap items-center gap-3">
+              <button type="button" onClick={handleAddNext} className={`${secondaryButton} inline-flex items-center gap-2`}>
+                <svg className="size-4" fill="none" viewBox="0 0 24 24" strokeWidth={2.2} stroke="currentColor" aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                </svg>
+                Add Rule
+              </button>
+              <button type="submit" className={primaryButton}>
+                Next
+              </button>
+              {message && <p className="text-sm text-neutral-600">{message}</p>}
+            </div>
+          </form>
+
+          {showPreview && (
+            <aside className="lg:sticky lg:top-8 lg:max-h-[calc(100vh-4rem)] lg:overflow-y-auto">
+              <ServicePreview rule={{ schedule: scheduleFromForm(schedule) }} ready={previewReady} />
+            </aside>
+          )}
+        </div>
       )}
 
       {step > 0 && (

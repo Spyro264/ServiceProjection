@@ -1,7 +1,6 @@
 import { useState } from 'react'
-import BikePicker from '../components/BikePicker.jsx'
 import { ruleTitle } from '../lib/projection.js'
-import { assignBikesToTag, loadBikes, loadMasterRules, loadTags, saveTags } from '../lib/storage.js'
+import { loadBikes, loadMasterRules, loadTags, saveTags } from '../lib/storage.js'
 import { logTable } from '../lib/log.js'
 
 const sectionLabel = 'text-xs font-semibold uppercase tracking-wider text-neutral-500'
@@ -13,8 +12,6 @@ const inputClass = (error) =>
 
 const primaryButton =
   'rounded-lg bg-brand px-5 py-2 text-sm font-semibold text-neutral-950 hover:brightness-95 focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:ring-offset-2'
-const secondaryButton =
-  'rounded-lg border border-neutral-300 bg-white px-5 py-2 text-sm font-semibold text-neutral-900 hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:ring-offset-2'
 
 function TagIcon(props) {
   return (
@@ -25,44 +22,7 @@ function TagIcon(props) {
   )
 }
 
-function AssignBikesDialog({ tag, freeBikes, onSave, onClose }) {
-  const [selected, setSelected] = useState([])
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-neutral-950/50" onClick={onClose} aria-hidden="true" />
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="assign-bikes-title"
-        className="relative flex max-h-full w-full max-w-2xl flex-col rounded-xl bg-white shadow-xl"
-      >
-        <div className="border-b border-neutral-200 p-5 sm:px-6">
-          <h2 id="assign-bikes-title" className="text-base font-semibold">
-            Assign bikes to &ldquo;{tag.name}&rdquo;
-          </h2>
-          <p className="mt-1 text-sm text-neutral-500">Only bikes without a tag are shown.</p>
-        </div>
-        <div className="overflow-y-auto p-5 sm:px-6">
-          <BikePicker bikes={freeBikes} selected={selected} onChange={setSelected} />
-        </div>
-        <div className="flex flex-wrap items-center gap-3 border-t border-neutral-200 p-5 sm:px-6">
-          <button type="button" onClick={onClose} className={secondaryButton}>
-            Cancel
-          </button>
-          <button type="button" onClick={() => onSave(selected)} disabled={selected.length === 0} className={`${primaryButton} disabled:opacity-50`}>
-            Save
-          </button>
-          <p className="text-sm text-neutral-600">
-            {selected.length} bike{selected.length === 1 ? '' : 's'} selected
-          </p>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function TagCard({ tag, rule, bikes, onAssignBikes }) {
+function TagCard({ tag, rule, bikes }) {
   return (
     <article className="overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm">
       <header className="flex flex-wrap items-center justify-between gap-4 border-b border-neutral-200 p-5 sm:px-6">
@@ -81,17 +41,6 @@ function TagCard({ tag, rule, bikes, onAssignBikes }) {
             )}
           </p>
         </div>
-
-        <button
-          type="button"
-          onClick={onAssignBikes}
-          className="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-neutral-950 hover:brightness-95 focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:ring-offset-2"
-        >
-          <svg className="size-4" fill="none" viewBox="0 0 24 24" strokeWidth={2.2} stroke="currentColor" aria-hidden="true">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-          </svg>
-          Assign bikes
-        </button>
       </header>
 
       <section className="p-5 sm:px-6">
@@ -99,7 +48,7 @@ function TagCard({ tag, rule, bikes, onAssignBikes }) {
           Bikes <span className="ml-1 rounded-full bg-neutral-100 px-2 py-0.5 text-neutral-700">{bikes.length}</span>
         </h3>
         {bikes.length === 0 ? (
-          <p className="mt-3 text-sm text-neutral-500">No bikes yet. Use Assign bikes to add some.</p>
+          <p className="mt-3 text-sm text-neutral-500">No bikes yet. Bikes get this tag when they are onboarded.</p>
         ) : (
           <ul className="mt-3 flex flex-wrap gap-2">
             {bikes.map((bike) => (
@@ -118,11 +67,10 @@ function TagCard({ tag, rule, bikes, onAssignBikes }) {
 function Tags() {
   const [tags, setTags] = useState(loadTags)
   const [rules] = useState(loadMasterRules)
-  const [bikes, setBikes] = useState(loadBikes)
+  const [bikes] = useState(loadBikes)
   const [tagName, setTagName] = useState('')
   const [tagError, setTagError] = useState('')
   const [message, setMessage] = useState('')
-  const [assigningTo, setAssigningTo] = useState(null)
 
   function handleCreate(e) {
     e.preventDefault()
@@ -144,19 +92,11 @@ function Tags() {
     setMessage(`Tag "${name}" created.`)
   }
 
-  function handleAssignBikes(bikeIds) {
-    const nextBikes = assignBikesToTag(bikeIds, assigningTo.id)
-    logTable('Bikes assigned to tag', { tag: assigningTo.name, tagId: assigningTo.id, bikeIds: bikeIds.join(', ') })
-    logTable('bikes', nextBikes)
-    setBikes(nextBikes)
-    setAssigningTo(null)
-  }
-
   return (
     <div className="mx-auto max-w-6xl">
       <div className="mb-6">
         <h1 className="text-2xl font-semibold tracking-tight">Tags</h1>
-        <p className="mt-1 text-sm text-neutral-500">Create tags and assign bikes to them.</p>
+        <p className="mt-1 text-sm text-neutral-500">Create tags. Bikes get a tag on the Onboard Vehicles page.</p>
       </div>
 
       <form onSubmit={handleCreate} noValidate className="mb-6 rounded-xl border border-neutral-200 bg-white p-5 sm:px-6">
@@ -206,19 +146,9 @@ function Tags() {
               tag={tag}
               rule={rules.find((r) => r.id === tag.ruleId)}
               bikes={bikes.filter((bike) => bike.tagId === tag.id)}
-              onAssignBikes={() => setAssigningTo(tag)}
             />
           ))}
         </div>
-      )}
-
-      {assigningTo && (
-        <AssignBikesDialog
-          tag={assigningTo}
-          freeBikes={bikes.filter((bike) => !bike.tagId)}
-          onSave={handleAssignBikes}
-          onClose={() => setAssigningTo(null)}
-        />
       )}
     </div>
   )

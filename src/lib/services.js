@@ -1,4 +1,4 @@
-import { projectService, serviceLabel, serviceTypeOf } from './projection.js'
+import { placeLateWork, projectService, serviceLabel, serviceTypeOf } from './projection.js'
 import {
   loadBikes,
   loadJobCards,
@@ -166,43 +166,74 @@ export function closeOutcome(jobCard, { kmDoneAt, doneDate }) {
 }
 
 // Records a Completed/Lapsed job card and projects the next service.
-// Lapsed: the slot stays lapsed, this work takes the next slot, and the one after is projected.
-// Returns { lateServiceNo, nextJobCard }.
+// Lapsed: the slot stays lapsed, every later slot the work has also passed lapses too, the work takes the first slot
+// it has not passed, and the one after that is projected (see placeLateWork).
+// Returns { lateServiceNo, nextJobCard }; lateServiceNo is null when the rule has no slot left for the work.
 export function closeService(jobCard) {
   syncService(jobCard)
 
   const vehicle = loadVehicles().find((v) => v.id === jobCard.vehicleId)
   const rule = vehicle && currentRule(vehicle)
-  let nextNo = jobCard.serviceNo + 1
-  let lateServiceNo = null
-  if (jobCard.status === 'Lapsed') {
-    lateServiceNo = nextNo
-    saveServices([
-      ...loadServices(),
-      {
-        id: crypto.randomUUID(),
-        vehicleId: jobCard.vehicleId,
-        regNo: jobCard.regNo,
-        model: jobCard.model,
-        serviceNo: lateServiceNo,
-        serviceType: rule ? serviceTypeOf(lateServiceNo, rule) : 'PMS',
-        lateFor: jobCard.serviceNo,
-        basis: `Late work for the lapsed ${serviceLabel(jobCard.serviceNo)}. It takes the next slot.`,
-        jobCardId: jobCard.id,
-        jobCardNo: jobCard.jobCardNo,
-        projectedAt: jobCard.closedAt,
-        ...jobCardFields(jobCard),
-        overKm: false,
-        overDate: false,
-        status: 'Completed',
-      },
-    ])
-    nextNo += 1
+  if (jobCard.status !== 'Lapsed') {
+    if (!rule) return { lateServiceNo: null, nextJobCard: null }
+    // The job card carries both the actual service (km / date done) and its projected window.
+    const projection = projectService(rule, vehicle.invoiceDate, jobCard.serviceNo + 1, jobCard)
+    return { lateServiceNo: null, nextJobCard: projection && scheduleService(vehicle, projection) }
   }
 
-  if (!vehicle || !rule) return { lateServiceNo, nextJobCard: null }
+  // Without a rule the work just takes the next slot.
+  const { skipped, late } = rule
+    ? placeLateWork(rule, vehicle.invoiceDate, jobCard, jobCard)
+    : { skipped: [], late: { serviceNo: jobCard.serviceNo + 1, serviceType: 'PMS' } }
+  const lateServiceNo = late?.serviceNo ?? null
+  const vehicleFields = { vehicleId: jobCard.vehicleId, regNo: jobCard.regNo, model: jobCard.model }
+  const skippedRows = skipped.map((projection) => ({
+    id: crypto.randomUUID(),
+    ...vehicleFields,
+    ...projection,
+    lapsedWith: jobCard.serviceNo,
+    lateServiceNo,
+    projectedAt: jobCard.closedAt,
+    status: 'Lapsed',
+  }))
+  const lateRows = late
+    ? [
+        {
+          id: crypto.randomUUID(),
+          ...vehicleFields,
+          serviceNo: late.serviceNo,
+          serviceType: late.serviceType,
+          // The due window of the slot the work took (none when there is no rule to project it from).
+          kmFrom: late.kmFrom,
+          kmTo: late.kmTo,
+          dueDateFrom: late.dueDateFrom,
+          dueDateTo: late.dueDateTo,
+          lateFor: jobCard.serviceNo,
+          basis:
+            skipped.length > 0
+              ? `Late work for the lapsed ${serviceLabel(jobCard.serviceNo)}. It was past the ${skipped.map((p) => serviceLabel(p.serviceNo)).join(', ')} too, so those lapsed and it takes this slot.`
+              : `Late work for the lapsed ${serviceLabel(jobCard.serviceNo)}. It takes the next slot.`,
+          jobCardId: jobCard.id,
+          jobCardNo: jobCard.jobCardNo,
+          projectedAt: jobCard.closedAt,
+          ...jobCardFields(jobCard),
+          overKm: false,
+          overDate: false,
+          status: 'Completed',
+        },
+      ]
+    : []
+  const services = loadServices().map((s) => (s.jobCardId === jobCard.id ? { ...s, lateServiceNo } : s))
+  saveServices([...services, ...skippedRows, ...lateRows])
+  if (skippedRows.length > 0) logTable('Services lapsed by late work', skippedRows)
 
-  // The job card carries both the actual service (km / date done) and its projected window.
-  const projection = projectService(rule, vehicle.invoiceDate, nextNo, jobCard)
+  if (!rule || !late) return { lateServiceNo, nextJobCard: null }
+
+  // The next service counts from the late work (actual km / date) and the slot it took (ideal point).
+  const projection = projectService(rule, vehicle.invoiceDate, late.serviceNo + 1, {
+    ...late,
+    kmDoneAt: jobCard.kmDoneAt,
+    doneDate: jobCard.doneDate,
+  })
   return { lateServiceNo, nextJobCard: projection && scheduleService(vehicle, projection) }
 }

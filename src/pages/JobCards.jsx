@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { formatDateRange, formatKmRange, lapseReason, serviceLabel } from '../lib/projection.js'
+import { formatDateRange, formatKmRange, lapseReason, ordinal, serviceLabel } from '../lib/projection.js'
 import { SERVICE_CENTERS, closeOutcome, closeService, syncService } from '../lib/services.js'
 import { loadJobCards, loadUnplanned, saveJobCards } from '../lib/storage.js'
 import {
@@ -365,12 +365,23 @@ function JobCard({ jobCard, pushed, onUpdate }) {
   )
 }
 
+// Where the late work for a lapsed job card went: slots it also passed lapse, and it takes the one after them.
+function lateText(lapsedNo, lateServiceNo) {
+  if (lateServiceNo === null) return ', and every later service in the rule too: the work is past all of them.'
+  const passed = lateServiceNo - lapsedNo - 1
+  const also =
+    passed === 0
+      ? ''
+      : `, the work was past the ${passed === 1 ? serviceLabel(lapsedNo + 1) : `${ordinal(lapsedNo + 1)}–${serviceLabel(lateServiceNo - 1)}`} too so ${passed === 1 ? 'it' : 'they'} also lapsed,`
+  return `${also} and this work recorded as the ${serviceLabel(lateServiceNo)}.`
+}
+
 // Result of closing a planned job card, and what was projected next.
 function closeMessage(jobCard, lateServiceNo, nextJobCard) {
   const result =
     jobCard.status === 'Completed'
       ? `${jobCard.jobCardNo} completed. Service was done within the due KM and date.`
-      : `${jobCard.jobCardNo} lapsed. Service was done ${lapseReason(jobCard)}. ${serviceLabel(jobCard.serviceNo)} marked lapsed and this work recorded as the ${serviceLabel(lateServiceNo)}.`
+      : `${jobCard.jobCardNo} lapsed. Service was done ${lapseReason(jobCard)}. ${serviceLabel(jobCard.serviceNo)} marked lapsed${lateText(jobCard.serviceNo, lateServiceNo)}`
   const next = nextJobCard
     ? ` ${serviceLabel(nextJobCard.serviceNo)} projected and job card ${nextJobCard.jobCardNo} created.`
     : ' Next service not projected: no master rule found for this vehicle, or its rule has no services left.'

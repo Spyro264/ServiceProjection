@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { daysBetween, formatDate, today } from '../lib/dates.js'
 import { projectFromAge, projectService, ruleTitle, serviceLabel } from '../lib/projection.js'
-import { recordEstimatedServices, recordPreviousServices, scheduleService, tagRuleFor } from '../lib/services.js'
-import { loadBikes, loadMasterRules, loadTags, loadVehicles, saveVehicles } from '../lib/storage.js'
+import { recordEstimatedServices, recordPreviousServices, scheduleService } from '../lib/services.js'
+import { assignBikesToTag, loadBikes, loadMasterRules, loadTags, loadVehicles, saveVehicles } from '../lib/storage.js'
 import { logTable } from '../lib/log.js'
 
 // Vehicle details below the bike picker. Model is filled from the selected bike.
@@ -22,7 +22,7 @@ const lastServiceFields = [
   { name: 'lastServiceDate', label: 'Last Service Date', type: 'date' },
 ]
 
-const emptyForm = { regNo: '', model: '', company: '', invoiceDate: '', lastServiceNo: '', lastServiceKm: '', lastServiceDate: '' }
+const emptyForm = { regNo: '', tagId: '', model: '', company: '', invoiceDate: '', lastServiceNo: '', lastServiceKm: '', lastServiceDate: '' }
 
 const hasLastService = (form) => lastServiceFields.some(({ name }) => form[name].trim())
 
@@ -36,33 +36,31 @@ const inputClass = (error) =>
 
 const normalizeRegNo = (regNo) => regNo.toUpperCase().replace(/\s+/g, '')
 
-// Reg No choices: bikes that have a tag and are not onboarded yet, with their tag and its rule.
-function taggedBikeOptions() {
-  const tags = loadTags()
-  const rules = loadMasterRules()
+// Reg No choices: bikes without a tag. A bike gets its tag here, so once tagged it is no longer listed.
+const untaggedBikes = () => {
   const onboarded = new Set(loadVehicles().map((v) => v.regNo))
-  return loadBikes()
-    .filter((bike) => bike.tagId && !onboarded.has(bike.regNo))
-    .map((bike) => {
-      const tag = tags.find((t) => t.id === bike.tagId)
-      return { ...bike, tagName: tag?.name ?? '—', rule: tag && rules.find((r) => r.id === tag.ruleId) }
-    })
+  return loadBikes().filter((bike) => !bike.tagId && !onboarded.has(bike.regNo))
 }
 
-function validate(form, vehicles, { tag, rule }) {
+// Tag choices: only tags that already have a service rule, since the bike is projected from it on save.
+function tagOptions() {
+  const rules = loadMasterRules()
+  return loadTags()
+    .map((tag) => ({ ...tag, rule: rules.find((r) => r.id === tag.ruleId) }))
+    .filter((tag) => tag.rule)
+}
+
+function validate(form, vehicles, bike, tag) {
   const errors = {}
   if (!form.regNo) errors.regNo = 'Select a bike'
+  else if (!bike) errors.regNo = 'This bike already has a tag'
+  if (!form.tagId) errors.tagId = 'Select a tag'
+  else if (!tag) errors.tagId = 'This tag has no service rule'
   for (const { name, readOnly } of detailFields) {
     if (!readOnly && !form[name].trim()) errors[name] = 'Required'
   }
   if (!errors.regNo && vehicles.some((v) => v.regNo === normalizeRegNo(form.regNo))) {
     errors.regNo = 'Already onboarded'
-  }
-  // The service rule comes from the bike's tag, so the bike must be tagged first.
-  if (!errors.regNo && !tag) {
-    errors.regNo = 'No tag assigned to this bike. Assign a tag on the Tags page, then onboard.'
-  } else if (!errors.regNo && !rule) {
-    errors.regNo = "This bike's tag has no service rule."
   }
   if (!errors.invoiceDate && form.invoiceDate > today()) {
     errors.invoiceDate = 'Cannot be in the future'
@@ -88,8 +86,10 @@ function OnboardVehicles() {
   const [form, setForm] = useState(emptyForm)
   const [errors, setErrors] = useState({})
   const [message, setMessage] = useState('')
-  const bikeOptions = taggedBikeOptions()
+  const bikeOptions = untaggedBikes()
+  const tags = tagOptions()
   const selectedBike = bikeOptions.find((b) => b.regNo === form.regNo)
+  const selectedTag = tags.find((t) => t.id === form.tagId)
 
   function handleChange(e) {
     const { name, value } = e.target
@@ -105,13 +105,19 @@ function OnboardVehicles() {
   function handleSave(e) {
     e.preventDefault()
     const vehicles = loadVehicles()
-    const tagRule = tagRuleFor(normalizeRegNo(form.regNo))
-    const { tag, rule } = tagRule
-    const nextErrors = validate(form, vehicles, tagRule)
+    // Read fresh so a bike tagged or a tag changed since the page loaded is caught.
+    const bike = untaggedBikes().find((b) => b.regNo === form.regNo)
+    const tag = tagOptions().find((t) => t.id === form.tagId)
+    const nextErrors = validate(form, vehicles, bike, tag)
     logTable('Onboard vehicle submitted', form)
     logTable('Errors', nextErrors)
     setErrors(nextErrors)
     if (Object.keys(nextErrors).length > 0) return
+
+    const { rule } = tag
+    const bikes = assignBikesToTag([bike.id], tag.id)
+    logTable('Bike assigned to tag', { regNo: bike.regNo, tag: tag.name, tagId: tag.id, rule: ruleTitle(rule) })
+    logTable('bikes', bikes)
 
     const isOld = isOldVehicle(form.invoiceDate)
     const lastService =
@@ -143,7 +149,7 @@ function OnboardVehicles() {
 
     setForm(emptyForm)
     setMessage(
-      `${vehicle.regNo} onboarded on tag "${tag.name}".${
+      `${vehicle.regNo} assigned to tag "${tag.name}" and onboarded.${
         lastService
           ? ` Last service (${serviceLabel(lastService.serviceNo)}) recorded at ${lastService.kmDoneAt.toLocaleString('en-IN')} km on ${formatDate(lastService.doneDate)}.`
           : estimate
@@ -179,42 +185,73 @@ function OnboardVehicles() {
 
       <form onSubmit={handleSave} noValidate className="rounded-xl border border-neutral-200 bg-white">
         <div className="border-b border-neutral-200 p-5 sm:px-6">
-          <h2 className="text-base font-semibold">Pick Bike</h2>
-          <p className="mt-1 text-sm text-neutral-500">Only bikes with a tag are listed. The bike follows its tag&apos;s service rule.</p>
+          <h2 className="text-base font-semibold">Pick Bike &amp; Tag</h2>
+          <p className="mt-1 text-sm text-neutral-500">
+            Only bikes without a tag are listed. The bike gets this tag and follows its service rule.
+          </p>
 
           <div className="mt-4 grid items-start gap-4 lg:grid-cols-2">
-            <div>
-              <label htmlFor="regNo" className="block text-sm font-medium text-neutral-700">
-                Vehicle Reg No <span className="text-neutral-400">*</span>
-              </label>
-              <select
-                id="regNo"
-                name="regNo"
-                value={form.regNo}
-                onChange={handleChange}
-                aria-invalid={Boolean(errors.regNo)}
-                aria-describedby={errors.regNo ? 'regNo-error' : undefined}
-                className={`mt-1.5 ${inputClass(errors.regNo)}`}
-              >
-                <option value="">{bikeOptions.length ? 'Select a bike' : 'No tagged bikes'}</option>
-                {bikeOptions.map(({ regNo, tagName }) => (
-                  <option key={regNo} value={regNo}>
-                    {regNo} · {tagName}
-                  </option>
-                ))}
-              </select>
-              {errors.regNo ? (
-                <p id="regNo-error" className="mt-1 text-xs font-medium text-neutral-900">
-                  {errors.regNo}
-                </p>
-              ) : (
-                bikeOptions.length === 0 && (
-                  <p className="mt-1 text-xs text-neutral-500">Assign a tag on the Tags page first.</p>
-                )
-              )}
+            <div className="space-y-4">
+              <div>
+                <label htmlFor="regNo" className="block text-sm font-medium text-neutral-700">
+                  Vehicle Reg No <span className="text-neutral-400">*</span>
+                </label>
+                <select
+                  id="regNo"
+                  name="regNo"
+                  value={form.regNo}
+                  onChange={handleChange}
+                  aria-invalid={Boolean(errors.regNo)}
+                  aria-describedby={errors.regNo ? 'regNo-error' : undefined}
+                  className={`mt-1.5 ${inputClass(errors.regNo)}`}
+                >
+                  <option value="">{bikeOptions.length ? 'Select a bike' : 'No bikes left to onboard'}</option>
+                  {bikeOptions.map(({ regNo, model }) => (
+                    <option key={regNo} value={regNo}>
+                      {regNo} · {model}
+                    </option>
+                  ))}
+                </select>
+                {errors.regNo && (
+                  <p id="regNo-error" className="mt-1 text-xs font-medium text-neutral-900">
+                    {errors.regNo}
+                  </p>
+                )}
+              </div>
+  
+              <div>
+                <label htmlFor="tagId" className="block text-sm font-medium text-neutral-700">
+                  Tag <span className="text-neutral-400">*</span>
+                </label>
+                <select
+                  id="tagId"
+                  name="tagId"
+                  value={form.tagId}
+                  onChange={handleChange}
+                  aria-invalid={Boolean(errors.tagId)}
+                  aria-describedby={errors.tagId ? 'tagId-error' : undefined}
+                  className={`mt-1.5 ${inputClass(errors.tagId)}`}
+                >
+                  <option value="">{tags.length ? 'Select a tag' : 'No tags with a service rule'}</option>
+                  {tags.map((tag) => (
+                    <option key={tag.id} value={tag.id}>
+                      {tag.name}
+                    </option>
+                  ))}
+                </select>
+                {errors.tagId ? (
+                  <p id="tagId-error" className="mt-1 text-xs font-medium text-neutral-900">
+                    {errors.tagId}
+                  </p>
+                ) : (
+                  tags.length === 0 && (
+                    <p className="mt-1 text-xs text-neutral-500">Link a tag to a rule in Service Plan Setup first.</p>
+                  )
+                )}
+              </div>
             </div>
 
-            {selectedBike ? (
+            {selectedBike || selectedTag ? (
               <div className="rounded-lg bg-neutral-950 p-4 text-neutral-300">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="inline-flex items-center gap-1.5 rounded-md bg-white/10 px-2 py-0.5 text-sm font-semibold text-brand">
@@ -222,19 +259,21 @@ function OnboardVehicles() {
                       <path strokeLinecap="round" strokeLinejoin="round" d="M9.568 3H5.25A2.25 2.25 0 0 0 3 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 0 0 5.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 0 0 9.568 3Z" />
                       <path strokeLinecap="round" strokeLinejoin="round" d="M6 6h.008v.008H6V6Z" />
                     </svg>
-                    {selectedBike.tagName}
+                    {selectedTag?.name ?? 'No tag picked'}
                   </span>
-                  <span className="text-xs text-neutral-400">
-                    {selectedBike.model} · {selectedBike.year}
-                  </span>
+                  {selectedBike && (
+                    <span className="text-xs text-neutral-400">
+                      {selectedBike.model} · {selectedBike.year}
+                    </span>
+                  )}
                 </div>
                 <p className="mt-2 text-sm font-medium text-white">
-                  {selectedBike.rule ? ruleTitle(selectedBike.rule) : 'This tag has no service rule.'}
+                  {selectedTag ? ruleTitle(selectedTag.rule) : 'Pick a tag to see its service rule.'}
                 </p>
               </div>
             ) : (
               <div className="hidden h-full items-center rounded-lg border border-dashed border-neutral-300 p-4 text-sm text-neutral-500 lg:flex">
-                Pick a bike to see its tag and service rule.
+                Pick a bike and a tag to see the service rule.
               </div>
             )}
           </div>

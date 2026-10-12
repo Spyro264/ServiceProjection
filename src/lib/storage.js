@@ -74,6 +74,15 @@ export function addMasterRule({ schedule, ...rule }) {
   return { rule, items }
 }
 
+// Replaces a rule's schedule (its service_rule_items rows), keeping each row's id.
+export function updateMasterRuleSchedule(ruleId, schedule) {
+  const items = loadServiceRuleItems()
+  const idOf = Object.fromEntries(items.filter((item) => item.ruleId === ruleId).map((item) => [item.sequence, item.id]))
+  const updated = schedule.map(({ serviceNo, ...entry }) => ({ id: idOf[serviceNo] ?? crypto.randomUUID(), ruleId, sequence: serviceNo, ...entry }))
+  save(SERVICE_RULE_ITEMS_KEY, [...items.filter((item) => item.ruleId !== ruleId), ...updated])
+  return updated
+}
+
 export const loadJobCards = () => load(JOB_CARDS_KEY)
 export const saveJobCards = (jobCards) => save(JOB_CARDS_KEY, jobCards)
 

@@ -345,7 +345,8 @@ The vehicle's service history page has two tabs, **Planned Services** and **Unpl
 
 | Case | What happens today | Possible fix |
 |---|---|---|
-| Next service of an old vehicle is **already overdue** at onboarding (when the last service is entered) | It is projected anyway, with a due date in the past | Use the bucket plan: project now only if the service is in the future; otherwise wait for the next real service |
+| **Pending decision (2026-10-12):** next service of an old vehicle is **already overdue** at onboarding (when the last service is entered) | It is projected anyway, with a due date in the past | Use the bucket plan: project now only if the service is in the future; otherwise wait for the next real service |
+| **Pending decision (2026-10-12):** old vehicle with **no service history** whose 1st service window ended long ago | Past services are estimated from age (see 2.7) | To be decided with the team |
 | Old vehicle with no history: the **real km** differs from the estimate | The PMS km is based on the rule's schedule, not the real odometer | Ask for the current odometer reading at onboarding |
 | Existing-vehicles doc asks for the **last 2** services | Only the last 1 is asked | Add a second set of last service fields |
 | Model typed with a spelling mistake | Treated as "no master rule" | Change the model field to a dropdown of rule models |

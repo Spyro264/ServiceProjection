@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { NavLink } from 'react-router'
 import { clearAllData } from '../lib/storage.js'
 
@@ -49,19 +50,41 @@ function TagIcon(props) {
   )
 }
 
-// Add new sidebar pages here.
-const navItems = [
-  { to: '/types', label: 'Add Type', icon: ListIcon },
-  { to: '/tags', label: 'Tags', icon: TagIcon },
-  { to: '/add-master-rule', label: 'Service Plan Setup', icon: RuleIcon },
-  { to: '/master-rule-view', label: 'Service Plans', icon: ListIcon },
-  { to: '/onboard-vehicles', label: 'Onboard Vehicles', icon: OnboardIcon },
-  { to: '/projected-vehicles', label: 'Projected Vehicles', icon: ListIcon },
-  { to: '/job-cards', label: 'Job Card', icon: JobCardIcon },
-  { to: '/unplanned-projection', label: 'Unplanned Projection', icon: ListIcon },
+// Add new sidebar pages here, under the group they belong to.
+const navGroups = [
+  {
+    title: 'Config',
+    items: [
+      { to: '/types', label: 'Add Type', icon: ListIcon },
+      { to: '/tags', label: 'Tags', icon: TagIcon },
+      { to: '/add-master-rule', label: 'Service Plan Setup', icon: RuleIcon },
+      { to: '/onboard-vehicles', label: 'Onboard Vehicles', icon: OnboardIcon },
+    ],
+  },
+  {
+    title: 'Planned Service',
+    items: [
+      { to: '/projected-vehicles', label: 'Projected Vehicles', icon: ListIcon },
+      { to: '/master-rule-view', label: 'Service Plans', icon: ListIcon },
+    ],
+  },
+  {
+    title: 'Unplanned Service',
+    items: [{ to: '/unplanned-projection', label: 'Unplanned Projection', icon: ListIcon }],
+  },
+  {
+    title: 'Job Card',
+    items: [{ to: '/job-cards', label: 'Job Card', icon: JobCardIcon }],
+  },
 ]
 
 function Sidebar({ open, hidden, onClose, onNavigate }) {
+  const [collapsed, setCollapsed] = useState({})
+
+  function toggleGroup(title) {
+    setCollapsed((prev) => ({ ...prev, [title]: !prev[title] }))
+  }
+
   return (
     <>
       {open && (
@@ -90,21 +113,45 @@ function Sidebar({ open, hidden, onClose, onNavigate }) {
           </button>
         </div>
 
-        <nav className="flex-1 space-y-1 px-3 py-4">
-          {navItems.map(({ to, label, icon: Icon }) => (
-            <NavLink
-              key={to}
-              to={to}
-              onClick={onNavigate}
-              className={({ isActive }) =>
-                `flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                  isActive ? 'bg-brand text-neutral-950' : 'hover:bg-white/5 hover:text-white'
-                }`
-              }
-            >
-              <Icon className="size-5" />
-              {label}
-            </NavLink>
+        <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-4">
+          {navGroups.map(({ title, items }) => (
+            <div key={title}>
+              <button
+                type="button"
+                onClick={() => toggleGroup(title)}
+                aria-expanded={!collapsed[title]}
+                className="flex w-full items-center justify-between rounded-md px-3 pb-2 text-xs font-semibold uppercase tracking-wider text-neutral-500 hover:text-neutral-300"
+              >
+                {title}
+                <svg
+                  className={`size-4 transition-transform ${collapsed[title] ? '-rotate-90' : ''}`}
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  strokeWidth={2}
+                  stroke="currentColor"
+                  aria-hidden="true"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+                </svg>
+              </button>
+              <div className={`space-y-1 ${collapsed[title] ? 'hidden' : ''}`}>
+                {items.map(({ to, label, icon: Icon }) => (
+                  <NavLink
+                    key={to}
+                    to={to}
+                    onClick={onNavigate}
+                    className={({ isActive }) =>
+                      `flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                        isActive ? 'bg-brand text-neutral-950' : 'hover:bg-white/5 hover:text-white'
+                      }`
+                    }
+                  >
+                    <Icon className="size-5" />
+                    {label}
+                  </NavLink>
+                ))}
+              </div>
+            </div>
           ))}
         </nav>
 

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { formatDate, today } from '../lib/dates.js'
-import { formatDateRange, formatKmRange, lapseReason, placeLateWork, projectService, serviceLabel } from '../lib/projection.js'
+import { formatDateRange, formatKmRange, lapseReason, placeLateWork, projectService, ruleSlotOf, serviceLabel } from '../lib/projection.js'
 import { closeOutcome } from '../lib/services.js'
 
 // Same colours as the service history page.
@@ -18,8 +18,8 @@ const inputClass = (error) =>
 const km = (value) => `${value.toLocaleString('en-IN')} km`
 
 // Replays the job card flow for the rule being set up: each entry in `dones` closes the pending service.
-// Lapsed: the slot stays lapsed, every later slot the work has also passed lapses too, the work takes the first slot
-// it has not passed (Completed), and the one after is projected.
+// Lapsed: the service stays lapsed, every later rule service the work has also passed lapses too, the work gets the
+// next number of its own (Completed), and the rule's following service is projected one number later.
 function timeline(rule, invoiceDate, dones) {
   const rows = []
   let pending = projectService(rule, invoiceDate, 1)
@@ -28,16 +28,12 @@ function timeline(rule, invoiceDate, dones) {
     const outcome = closeOutcome(pending, done)
     rows.push({ ...pending, ...outcome })
     if (outcome.status === 'Lapsed') {
-      const { skipped, late } = placeLateWork(rule, invoiceDate, pending, done)
+      const { skipped, lateServiceNo, next } = placeLateWork(rule, invoiceDate, pending, done)
       rows.push(...skipped.map((p) => ({ ...p, ...done, lapsedWith: pending.serviceNo, status: 'Lapsed' })))
-      if (!late) {
-        pending = null
-        break
-      }
-      rows.push({ serviceNo: late.serviceNo, serviceType: late.serviceType, lateFor: pending.serviceNo, ...done, status: 'Completed' })
-      pending = projectService(rule, invoiceDate, late.serviceNo + 1, { ...late, ...done })
+      rows.push({ serviceNo: lateServiceNo, serviceType: 'Late work', lateFor: pending.serviceNo, ...done, status: 'Completed' })
+      pending = next
     } else {
-      pending = projectService(rule, invoiceDate, pending.serviceNo + 1, { ...pending, ...outcome })
+      pending = projectService(rule, invoiceDate, ruleSlotOf(pending) + 1, { ...pending, ...outcome }, pending.serviceNo + 1)
     }
   }
   return { rows, pending }
@@ -123,7 +119,7 @@ function Row({ row }) {
       </div>
       {row.lateFor ? (
         <p className="mt-1 text-xs text-neutral-600">
-          Late work for the lapsed {serviceLabel(row.lateFor)}: {km(row.kmDoneAt)} on {formatDate(row.doneDate)}. It takes this slot.
+          Late work for the lapsed {serviceLabel(row.lateFor)}: {km(row.kmDoneAt)} on {formatDate(row.doneDate)}. The rule's later services move down one.
         </p>
       ) : (
         <>

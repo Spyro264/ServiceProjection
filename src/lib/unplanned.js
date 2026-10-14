@@ -24,8 +24,10 @@ export const CRITICAL_SERVICES = [
   'Accident Damage Repair',
 ]
 
-// The planned service is "near" when its due date starts within this many days (no odometer check yet).
-export const NEAR_DAYS = 20
+// The planned service is "near" when its due window starts within this many days or this many km
+// (whichever comes first, same as a planned service's due rule).
+export const NEAR_DAYS = 50
+export const NEAR_KM = 40
 
 export const DECISIONS = {
   separate: 'Separate',
@@ -44,7 +46,7 @@ export const criticalName = (text) =>
   CRITICAL_SERVICES.find((name) => name.toLowerCase() === text.trim().toLowerCase()) ?? null
 
 // The vehicle's planned job card that is still Pending (possibly already pulled into an unplanned visit).
-const pendingPlannedJobCard = (jobCards, vehicleId) =>
+export const pendingPlannedJobCard = (jobCards, vehicleId) =>
   jobCards.find((jc) => jc.vehicleId === vehicleId && (jc.status === 'Pending' || jc.status === 'Open'))
 
 // Raises an unplanned request (status Pending) and decides how it fits with the planned service:
@@ -53,14 +55,15 @@ const pendingPlannedJobCard = (jobCards, vehicleId) =>
 // - planned not near → done on its own
 // A critical request whose planned service is already pulled into another unplanned visit is done on its own;
 // non-critical work pushed to that planned service rides along with the visit.
-export function raiseUnplanned(vehicle, { items, serviceDays, serviceCenter }) {
+export function raiseUnplanned(vehicle, { items, currentKm, serviceDays, serviceCenter }) {
   const jobCards = loadJobCards()
   const unplanned = loadUnplanned()
   const now = new Date().toISOString()
   const critical = items.some((item) => criticalName(item))
   const planned = pendingPlannedJobCard(jobCards, vehicle.id)
   const daysToPlanned = planned ? daysBetween(today(), planned.dueDateFrom) : null
-  const near = Boolean(planned) && daysToPlanned <= NEAR_DAYS
+  const kmToPlanned = planned ? planned.kmFrom - currentKm : null
+  const near = Boolean(planned) && (daysToPlanned <= NEAR_DAYS || kmToPlanned <= NEAR_KM)
   const decision =
     !near || (critical && planned.pulledForwardBy)
       ? DECISIONS.separate
@@ -76,6 +79,7 @@ export function raiseUnplanned(vehicle, { items, serviceDays, serviceCenter }) {
     model: vehicle.model,
     items,
     critical,
+    currentKm,
     serviceDays,
     serviceCenter,
     decision,
@@ -97,23 +101,29 @@ export function raiseUnplanned(vehicle, { items, serviceDays, serviceCenter }) {
   }
 
   logTable('Unplanned request raised', row)
-  return { row, daysToPlanned }
+  logTable('Planned service nearness', { plannedJobCardNo: planned?.jobCardNo, daysToPlanned, kmToPlanned, NEAR_DAYS, NEAR_KM, near })
+  return { row, planned, daysToPlanned, kmToPlanned, near }
 }
 
-export function describeDecision({ row, daysToPlanned }) {
-  const planned = row.plannedJobCardNo
-    ? `the planned ${serviceLabel(row.plannedServiceNo)} (${row.plannedJobCardNo}) is due from ${formatDate(row.plannedDueDateFrom)}${
-        daysToPlanned < 0 ? ', its due window has already started' : `, ${daysToPlanned} ${daysToPlanned === 1 ? 'day' : 'days'} away`
+const daysText = (n) => `${n} ${n === 1 ? 'day' : 'days'}`
+
+export function describeDecision({ row, planned, daysToPlanned, kmToPlanned, near }) {
+  const plannedText = planned
+    ? `the planned ${serviceLabel(planned.serviceNo)} (${planned.jobCardNo}) is due from ${formatDate(planned.dueDateFrom)} / ${planned.kmFrom.toLocaleString('en-IN')} km${
+        daysToPlanned < 0 || kmToPlanned < 0
+          ? ', its due window has already started'
+          : `, ${daysText(daysToPlanned)} and ${kmToPlanned.toLocaleString('en-IN')} km away`
       }`
     : null
   const type = row.critical ? 'Critical' : 'Non-critical'
   if (row.decision === DECISIONS.pulledForward)
-    return `${row.unplannedNo} raised. ${type}, and ${planned}, so the planned service is pulled forward and both will be done on the same visit once ${row.unplannedNo} is accepted.`
+    return `${row.unplannedNo} raised. ${type}, and ${plannedText}, so the planned service is pulled forward and both will be done on the same visit once ${row.unplannedNo} is accepted.`
   if (row.decision === DECISIONS.pushed)
-    return `${row.unplannedNo} raised. ${type}, and ${planned}, so this work is pushed to the planned visit and will be done with ${row.plannedJobCardNo}.`
-  if (daysToPlanned !== null && daysToPlanned <= NEAR_DAYS)
+    return `${row.unplannedNo} raised. ${type}, and ${plannedText}, so this work is pushed to the planned visit and will be done with ${row.plannedJobCardNo}.`
+  if (near)
     return `${row.unplannedNo} raised. ${type}. The planned service is already pulled into another unplanned visit, so this will be done on its own. Accept it on the Job Card page to start.`
-  return `${row.unplannedNo} raised. ${type}, and no planned service is due within ${NEAR_DAYS} days, so it will be done on its own. Accept it on the Job Card page to start.`
+  const reason = plannedText ? `${plannedText} (not within ${NEAR_DAYS} days or ${NEAR_KM} km)` : 'there is no planned service pending'
+  return `${row.unplannedNo} raised. ${type}, and ${reason}, so it will be done on its own. Accept it on the Job Card page to start.`
 }
 
 function updateUnplanned(id, changes) {

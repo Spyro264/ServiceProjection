@@ -365,9 +365,9 @@ function JobCard({ jobCard, pushed, onUpdate }) {
   )
 }
 
-// Where the late work for a lapsed job card went: slots it also passed lapse, and it takes the one after them.
+// Where the late work for a lapsed job card went: services it also passed lapse, and it gets the number after them.
 function lateText(lapsedNo, lateServiceNo) {
-  if (lateServiceNo === null) return ', and every later service in the rule too: the work is past all of them.'
+  if (lateServiceNo === null) return '.'
   const passed = lateServiceNo - lapsedNo - 1
   const also =
     passed === 0

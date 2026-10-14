@@ -155,29 +155,49 @@ function projectRepeat({ entry, repeatNo }, serviceNo, last) {
   }
 }
 
+// A service's position in the rule's schedule. It differs from its service number once late work has taken a number
+// of its own. Services saved before that have no ruleSlot: their number is their slot.
+export const ruleSlotOf = (service) => service.ruleSlot ?? service.serviceNo
+
+// Projects the rule's `ruleSlot`-th service as the vehicle's `serviceNo`-th (the same unless late work moved it).
 // `last` is the most recent service ({ kmDoneAt, doneDate }, plus its projected kmIdeal / dueDateIdeal when known);
 // only repeats use it. Returns null once the rule's schedule has run out.
-export function projectService(rule, invoiceDate, serviceNo, last) {
-  const slot = slotFor(rule, serviceNo)
+export function projectService(rule, invoiceDate, ruleSlot, last, serviceNo = ruleSlot) {
+  const slot = slotFor(rule, ruleSlot)
   if (!slot) return null
-  return slot.repeat ? projectRepeat(slot, serviceNo, last) : projectFromInvoice(slot.entry, invoiceDate, serviceNo)
+  const projection = slot.repeat ? projectRepeat(slot, serviceNo, last) : projectFromInvoice(slot.entry, invoiceDate, serviceNo)
+  const moved = serviceNo !== ruleSlot ? `The rule's ${serviceLabel(ruleSlot)}, moved to the ${serviceLabel(serviceNo)} by late work. ` : ''
+  return { ...projection, ruleSlot, basis: moved + projection.basis }
 }
 
-// Late work for a lapsed service takes the first later slot it has not also passed (passed = done above that slot's
-// due KM or after its due date, the same test as a lapse), e.g. 2nd lapsed and done at 10,000 km: the 3rd, 4th …
-// lapse too and the work takes the slot whose window it reaches. A passed slot is assumed done at its ideal point
-// (window end for rules saved before ideal points) so the slots after it can be projected.
-// Returns { skipped, late }: the passed slots' projections and the slot the work takes (null once the schedule runs out).
+// Late work for a lapsed service gets a service number of its own, and the rule's services after it move down
+// one number, e.g. 1st (800–1,000 km) lapsed and done at 1,200 km: the work is the 2nd Service and the rule's 2nd
+// (2,000–3,000 km) becomes the 3rd. Rule services the work has also passed (done above their due KM or after their
+// due date, the same test as a lapse) lapse first, e.g. 2nd lapsed and done at 10,000 km: the 3rd and 4th lapse,
+// the work is the 5th and the rule's 5th becomes the 6th. A passed service is assumed done at its ideal point
+// (window end for rules saved before ideal points) to project the services after it.
+// Returns { skipped, lateServiceNo, next }: the passed services, the work's service number, and the next service to
+// project (null once the schedule runs out). It counts from the work (actual km / date) and the last rule service's
+// ideal point.
 export function placeLateWork(rule, invoiceDate, lapsed, { kmDoneAt, doneDate }) {
   const skipped = []
   let prev = lapsed
   for (;;) {
     const last = { ...prev, kmDoneAt: prev.kmIdeal ?? prev.kmTo, doneDate: prev.dueDateIdeal ?? prev.dueDateTo }
-    const next = projectService(rule, invoiceDate, prev.serviceNo + 1, last)
-    if (!next || (kmDoneAt <= next.kmTo && doneDate <= next.dueDateTo)) return { skipped, late: next }
-    skipped.push({ ...next, overKm: kmDoneAt > next.kmTo, overDate: doneDate > next.dueDateTo })
-    prev = next
+    const candidate = projectService(rule, invoiceDate, ruleSlotOf(prev) + 1, last, prev.serviceNo + 1)
+    if (!candidate || (kmDoneAt <= candidate.kmTo && doneDate <= candidate.dueDateTo)) break
+    skipped.push({ ...candidate, overKm: kmDoneAt > candidate.kmTo, overDate: doneDate > candidate.dueDateTo })
+    prev = candidate
   }
+  const lateServiceNo = prev.serviceNo + 1
+  const next = projectService(
+    rule,
+    invoiceDate,
+    ruleSlotOf(prev) + 1,
+    { kmIdeal: prev.kmIdeal, dueDateIdeal: prev.dueDateIdeal, kmDoneAt, doneDate },
+    lateServiceNo + 1,
+  )
+  return { skipped, lateServiceNo, next }
 }
 
 export const ordinal = (n) => {
@@ -229,7 +249,7 @@ export function projectFromAge(rule, invoiceDate, asOf) {
     last = { ...projection, kmDoneAt: projection.kmTo, doneDate: projection.dueDateTo }
     projection = projectService(rule, invoiceDate, pastCount + 1, last)
   }
-  if (projection && last && slotFor(rule, projection.serviceNo).repeat) {
+  if (projection && last && slotFor(rule, projection.ruleSlot).repeat) {
     projection = {
       ...projection,
       basis: `Estimated from the vehicle's age (no service history entered). Assumes the ${serviceLabel(pastCount)} was done on the rule schedule, around ${km(last.kmDoneAt)} on ${formatDate(last.doneDate)}. ${projection.basis}`,

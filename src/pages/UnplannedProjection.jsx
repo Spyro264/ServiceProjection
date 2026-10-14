@@ -1,17 +1,25 @@
 import { useState } from 'react'
 import { SERVICE_CENTERS } from '../lib/services.js'
-import { loadVehicles } from '../lib/storage.js'
-import { CRITICAL_SERVICES, criticalName, describeDecision, raiseUnplanned } from '../lib/unplanned.js'
+import { formatDate } from '../lib/dates.js'
+import { serviceLabel } from '../lib/projection.js'
+import { loadJobCards, loadVehicles } from '../lib/storage.js'
+import { CRITICAL_SERVICES, criticalName, describeDecision, pendingPlannedJobCard, raiseUnplanned } from '../lib/unplanned.js'
 import { logTable } from '../lib/log.js'
 
-const emptyForm = { regNo: '', items: [], serviceDays: '', serviceCenter: '' }
+const emptyForm = { regNo: '', currentKm: '', items: [], serviceDays: '', serviceCenter: '' }
+
+// Vehicles with a projected (Pending) planned service, each with that job card.
+function projectedVehicles() {
+  const jobCards = loadJobCards()
+  return loadVehicles()
+    .map((vehicle) => ({ vehicle, planned: pendingPlannedJobCard(jobCards, vehicle.id) }))
+    .filter(({ planned }) => planned)
+}
 
 const inputClass = (error) =>
   `mt-1.5 block w-full rounded-lg border bg-white px-3 py-2 text-sm text-neutral-900 placeholder:text-neutral-400 focus:outline-none focus:ring-2 ${
     error ? 'border-neutral-900 focus:ring-neutral-900/20' : 'border-neutral-300 focus:border-neutral-900 focus:ring-brand'
   }`
-
-const normalizeRegNo = (regNo) => regNo.toUpperCase().replace(/\s+/g, '')
 
 function FieldError({ id, error }) {
   return error ? (
@@ -131,10 +139,11 @@ function ServiceItemsInput({ items, onChange, error }) {
   )
 }
 
-function validate(form, vehicle) {
+function validate(form) {
   const errors = {}
-  if (!form.regNo.trim()) errors.regNo = 'Required'
-  else if (!vehicle) errors.regNo = 'Vehicle not onboarded'
+  if (!form.regNo) errors.regNo = 'Required'
+  if (!form.currentKm.trim()) errors.currentKm = 'Required'
+  else if (!(Number(form.currentKm) >= 0)) errors.currentKm = 'Must be a number'
   if (form.items.length === 0) errors.items = 'Add at least one item'
   if (!form.serviceDays.trim()) errors.serviceDays = 'Required'
   else if (!(Number(form.serviceDays) > 0)) errors.serviceDays = 'Must be a number above 0'
@@ -146,6 +155,7 @@ function UnplannedProjection() {
   const [form, setForm] = useState(emptyForm)
   const [errors, setErrors] = useState({})
   const [message, setMessage] = useState('')
+  const [options, setOptions] = useState(projectedVehicles)
 
   function set(name, value) {
     setForm((prev) => ({ ...prev, [name]: value }))
@@ -155,8 +165,8 @@ function UnplannedProjection() {
 
   function handleSubmit(e) {
     e.preventDefault()
-    const vehicle = loadVehicles().find((v) => v.regNo === normalizeRegNo(form.regNo))
-    const nextErrors = validate(form, vehicle)
+    const vehicle = options.find((o) => o.vehicle.regNo === form.regNo)?.vehicle
+    const nextErrors = validate(form)
     logTable('Unplanned request submitted', form)
     logTable('Errors', nextErrors)
     setErrors(nextErrors)
@@ -164,10 +174,12 @@ function UnplannedProjection() {
 
     const result = raiseUnplanned(vehicle, {
       items: form.items,
+      currentKm: Number(form.currentKm),
       serviceDays: Number(form.serviceDays),
       serviceCenter: form.serviceCenter,
     })
     setForm(emptyForm)
+    setOptions(projectedVehicles())
     setMessage(describeDecision(result))
   }
 
@@ -180,21 +192,52 @@ function UnplannedProjection() {
 
       <form onSubmit={handleSubmit} noValidate className="rounded-xl border border-neutral-200 bg-white">
         <div className="space-y-5 p-5 sm:p-6">
-          <div>
-            <label htmlFor="regNo" className="block text-sm font-medium text-neutral-700">
-              Vehicle Reg No <span className="text-neutral-400">*</span>
-            </label>
-            <input
-              id="regNo"
-              type="text"
-              value={form.regNo}
-              onChange={(e) => set('regNo', e.target.value.toUpperCase())}
-              placeholder="KA01AB1234"
-              aria-invalid={Boolean(errors.regNo)}
-              aria-describedby={errors.regNo ? 'regNo-error' : undefined}
-              className={inputClass(errors.regNo)}
-            />
-            <FieldError id="regNo-error" error={errors.regNo} />
+          <div className="grid gap-5 sm:grid-cols-2">
+            <div>
+              <label htmlFor="regNo" className="block text-sm font-medium text-neutral-700">
+                Vehicle Reg No <span className="text-neutral-400">*</span>
+              </label>
+              <select
+                id="regNo"
+                value={form.regNo}
+                onChange={(e) => set('regNo', e.target.value)}
+                aria-invalid={Boolean(errors.regNo)}
+                aria-describedby={errors.regNo ? 'regNo-error' : 'regNo-hint'}
+                className={inputClass(errors.regNo)}
+              >
+                <option value="">{options.length > 0 ? 'Select' : 'No projected vehicles'}</option>
+                {options.map(({ vehicle, planned }) => (
+                  <option key={vehicle.id} value={vehicle.regNo}>
+                    {vehicle.regNo} · {serviceLabel(planned.serviceNo)} from {formatDate(planned.dueDateFrom)} /{' '}
+                    {planned.kmFrom.toLocaleString('en-IN')} km
+                  </option>
+                ))}
+              </select>
+              {!errors.regNo && (
+                <p id="regNo-hint" className="mt-1 text-xs text-neutral-500">
+                  Only vehicles with a projected service are listed.
+                </p>
+              )}
+              <FieldError id="regNo-error" error={errors.regNo} />
+            </div>
+            <div>
+              <label htmlFor="currentKm" className="block text-sm font-medium text-neutral-700">
+                Current Odometer (km) <span className="text-neutral-400">*</span>
+              </label>
+              <input
+                id="currentKm"
+                type="number"
+                min={0}
+                inputMode="numeric"
+                value={form.currentKm}
+                onChange={(e) => set('currentKm', e.target.value)}
+                placeholder="2400"
+                aria-invalid={Boolean(errors.currentKm)}
+                aria-describedby={errors.currentKm ? 'currentKm-error' : undefined}
+                className={inputClass(errors.currentKm)}
+              />
+              <FieldError id="currentKm-error" error={errors.currentKm} />
+            </div>
           </div>
 
           <ServiceItemsInput items={form.items} onChange={(items) => set('items', items)} error={errors.items} />

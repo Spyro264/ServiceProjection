@@ -3,7 +3,7 @@ import { Link, useParams } from 'react-router'
 import DueTiming from '../components/DueTiming.jsx'
 import StatusBadge from '../components/StatusBadge.jsx'
 import { formatDate } from '../lib/dates.js'
-import { formatDateRange, formatKmRange, freeCountOf, lapseReason, ruleTitle, serviceLabel } from '../lib/projection.js'
+import { formatDateRange, formatKmRange, freeCountOf, isFree, lapseReason, ruleTitle, serviceLabel } from '../lib/projection.js'
 import { currentRule, tagRuleFor } from '../lib/services.js'
 import { loadServices, loadUnplanned, loadVehicles } from '../lib/storage.js'
 import { DECISIONS, criticalName, dueRange } from '../lib/unplanned.js'
@@ -288,8 +288,9 @@ function PlannedCells({ service: s }) {
 
 function PlannedTab({ services, freeCount }) {
   const count = (status) => services.filter((s) => s.status === status).length
+  // Late work has a number of its own but is not a free service.
   const freeUsed = services.filter(
-    (s) => s.serviceNo <= freeCount && ['Completed', 'Lapsed', 'Recorded', 'No Data'].includes(s.status),
+    (s) => !s.lateFor && isFree(s.serviceType ?? '') && ['Completed', 'Lapsed', 'Recorded', 'No Data'].includes(s.status),
   ).length
 
   return (

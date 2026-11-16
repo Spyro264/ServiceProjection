@@ -3,7 +3,7 @@ import { NavLink } from 'react-router'
 import { clearAllData } from '../lib/storage.js'
 
 function handleDelete() {
-  if (!window.confirm('Delete all data? This removes every vehicle, master rule, tag, type, job card and unplanned request.')) return
+  if (!window.confirm('Delete all data? This removes every vehicle, master rule, tag, type, job card, unplanned request, part, part assignment, parts rule and demo service projection.')) return
   clearAllData()
   console.log('All data deleted')
   window.location.reload()
@@ -50,6 +50,15 @@ function TagIcon(props) {
   )
 }
 
+function WrenchIcon(props) {
+  return (
+    <svg fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" aria-hidden="true" {...props}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75a4.5 4.5 0 0 1-4.884 4.484c-1.076-.091-2.264.071-2.95.904l-7.152 8.684a2.548 2.548 0 1 1-3.586-3.586l8.684-7.152c.833-.686.995-1.874.904-2.95a4.5 4.5 0 0 1 6.336-4.486l-3.276 3.276a3.004 3.004 0 0 0 2.25 2.25l3.276-3.276c.256.565.398 1.192.398 1.852Z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4.867 19.125h.008v.008h-.008v-.008Z" />
+    </svg>
+  )
+}
+
 // Add new sidebar pages here, under the group they belong to.
 const navGroups = [
   {
@@ -75,6 +84,18 @@ const navGroups = [
   {
     title: 'Job Card',
     items: [{ to: '/job-cards', label: 'Job Card', icon: JobCardIcon }],
+  },
+  {
+    title: 'Spare Parts',
+    items: [
+      { to: '/parts', label: 'Parts', icon: WrenchIcon },
+      { to: '/assign-parts', label: 'Assign Parts', icon: ListIcon },
+      { to: '/parts-rule', label: 'Parts Rule', icon: RuleIcon },
+    ],
+  },
+  {
+    title: 'DemoTest',
+    items: [{ to: '/demo', label: 'Demo', icon: ListIcon }],
   },
 ]
 

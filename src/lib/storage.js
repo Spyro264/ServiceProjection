@@ -9,6 +9,11 @@ const UNPLANNED_KEY = 'unplanned'
 const TAGS_KEY = 'tags'
 const BIKES_KEY = 'bikes'
 const TYPES_KEY = 'types'
+const PARTS_KEY = 'parts'
+const MODEL_PARTS_KEY = 'model_part_assignments'
+const PARTS_RULES_KEY = 'parts_rules'
+const PARTS_RULE_ITEMS_KEY = 'parts_rule_items'
+const SERVICE_PROJECTION_KEY = 'service_projection'
 
 // Dummy bikes to pick from when assigning a tag. tagId is null until a tag is assigned.
 const DUMMY_BIKE_MODELS = [
@@ -17,8 +22,9 @@ const DUMMY_BIKE_MODELS = [
   ['Jupiter', 2024],
   ['Pulsar 150', 2023],
   ['Splendor Plus', 2025],
+  ['Activa 5G', 2022],
 ]
-// Three series of 5: KA01AB3001-3005, KA01AB4001-4005, KA01AB5001-5005.
+// Three series of 6: KA01AB3001-3006, KA01AB4001-4006, KA01AB5001-5006.
 const DUMMY_BIKE_SERIES = [3, 4, 5]
 const dummyBikes = DUMMY_BIKE_SERIES.flatMap((series) =>
   DUMMY_BIKE_MODELS.map(([model, year], i) => {
@@ -116,8 +122,86 @@ export function assignBikesToTag(bikeIds, tagId) {
   return bikes
 }
 
+// Bike models (distinct, sorted) from the bikes table. Each model is separate, e.g. Activa 5G and Activa 6G.
+export const loadBikeModels = () => [...new Set(loadBikes().map((bike) => bike.model))].sort()
+
+// Spare parts, not tied to any model: { id, name, createdAt }.
+export const loadParts = () => load(PARTS_KEY)
+export const saveParts = (parts) => save(PARTS_KEY, parts)
+
+// Parts assigned to a bike model, one row per model + part: { id, model, partId, createdAt }.
+export const loadModelParts = () => load(MODEL_PARTS_KEY)
+
+// Parts assigned to a model, in the order they were added on the Parts page.
+export function loadPartsForModel(model) {
+  const assigned = new Set(loadModelParts().filter((row) => row.model === model).map((row) => row.partId))
+  return loadParts().filter((part) => assigned.has(part.id))
+}
+
+// Replaces a model's assigned parts with partIds, keeping the rows of parts that stay assigned.
+export function assignPartsToModel(model, partIds) {
+  const rows = loadModelParts()
+  const kept = rows.filter((row) => row.model === model && partIds.includes(row.partId))
+  const added = partIds
+    .filter((partId) => !kept.some((row) => row.partId === partId))
+    .map((partId) => ({ id: crypto.randomUUID(), model, partId, createdAt: new Date().toISOString() }))
+  const next = [...rows.filter((row) => row.model !== model), ...kept, ...added]
+  save(MODEL_PARTS_KEY, next)
+  return next
+}
+
+// A parts rule is two tables like a service rule: one row per rule in parts_rules ({ id, model, createdAt }) and one row
+// per service in parts_rule_items ({ id, ruleId, sequence, partIds }), sequence being the service number.
+export const loadPartsRules = () => load(PARTS_RULES_KEY)
+export const loadPartsRuleItems = () => load(PARTS_RULE_ITEMS_KEY)
+
+// A model's saved services as [{ serviceNo, partIds }] in service order, or null when the model has no parts rule.
+export function loadPartsRuleServices(model) {
+  const rule = loadPartsRules().find((r) => r.model === model)
+  if (!rule) return null
+  return loadPartsRuleItems()
+    .filter((item) => item.ruleId === rule.id)
+    .sort((a, b) => a.sequence - b.sequence)
+    .map((item) => ({ serviceNo: item.sequence, partIds: item.partIds }))
+}
+
+// A model has one parts rule: the first save adds the parent row, later saves replace its child rows.
+// services: [{ serviceNo, partIds }].
+export function savePartsRule(model, services) {
+  const rules = loadPartsRules()
+  let rule = rules.find((r) => r.model === model)
+  if (!rule) {
+    rule = { id: crypto.randomUUID(), model, createdAt: new Date().toISOString() }
+    save(PARTS_RULES_KEY, [rule, ...rules])
+  }
+  const items = services.map(({ serviceNo, partIds }) => ({ id: crypto.randomUUID(), ruleId: rule.id, sequence: serviceNo, partIds }))
+  save(PARTS_RULE_ITEMS_KEY, [...loadPartsRuleItems().filter((item) => item.ruleId !== rule.id), ...items])
+  return { rule, items }
+}
+
+// DemoTest page: one row per service in the demo projection chain.
+export const loadServiceProjection = () => load(SERVICE_PROJECTION_KEY)
+export const saveServiceProjection = (rows) => save(SERVICE_PROJECTION_KEY, rows)
+
 export function clearAllData() {
-  for (const key of [VEHICLES_KEY, MASTER_TABLE_KEY, SERVICE_RULES_KEY, SERVICE_RULE_ITEMS_KEY, JOB_CARDS_KEY, SERVICES_KEY, UNPLANNED_KEY, TAGS_KEY, BIKES_KEY, TYPES_KEY]) {
+  for (const key of [
+    VEHICLES_KEY,
+    MASTER_TABLE_KEY,
+    SERVICE_RULES_KEY,
+    SERVICE_RULE_ITEMS_KEY,
+    JOB_CARDS_KEY,
+    SERVICES_KEY,
+    UNPLANNED_KEY,
+    TAGS_KEY,
+    BIKES_KEY,
+    TYPES_KEY,
+    PARTS_KEY,
+    MODEL_PARTS_KEY,
+    'model_parts', // old model-specific parts table
+    PARTS_RULES_KEY,
+    PARTS_RULE_ITEMS_KEY,
+    SERVICE_PROJECTION_KEY,
+  ]) {
     localStorage.removeItem(key)
   }
 }

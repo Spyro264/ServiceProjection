@@ -158,17 +158,17 @@ function ServiceEntryCard({ entry, i, heading, errors, types, onChange }) {
               {errorText('count')}
             </div>
 
-            <div>
+            {/* <div>
               {label('daysInterval', 'Days Interval')}
               {numberInput('daysInterval', '90', 1)}
               {errorText('daysInterval')}
-            </div>
+            </div> */}
 
-            <div>
+            {/* <div>
               {label('kmInterval', 'Odometer Interval (km)')}
               {numberInput('kmInterval', '2500', 1)}
               {errorText('kmInterval')}
-            </div>
+            </div> */}
 
             <fieldset className="sm:col-span-2 lg:col-span-5">
               <legend className="block text-sm font-medium text-neutral-700">

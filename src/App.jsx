@@ -10,6 +10,7 @@ import Parts from './pages/Parts.jsx'
 import PartsRule from './pages/PartsRule.jsx'
 import ProjectedVehicles from './pages/ProjectedVehicles.jsx'
 import ServiceHistory from './pages/ServiceHistory.jsx'
+import ServicePartsDemo from './pages/ServicePartsDemo.jsx'
 import Tags from './pages/Tags.jsx'
 import Types from './pages/Types.jsx'
 import UnplannedProjection from './pages/UnplannedProjection.jsx'
@@ -32,6 +33,7 @@ function App() {
         <Route path="assign-parts" element={<AssignParts />} />
         <Route path="parts-rule" element={<PartsRule />} />
         <Route path="demo" element={<Demo />} />
+        <Route path="service-parts-demo" element={<ServicePartsDemo />} />
         <Route path="*" element={<Navigate to="/onboard-vehicles" replace />} />
       </Route>
     </Routes>

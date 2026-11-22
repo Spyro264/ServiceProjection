@@ -95,7 +95,10 @@ const navGroups = [
   },
   {
     title: 'DemoTest',
-    items: [{ to: '/demo', label: 'Demo', icon: ListIcon }],
+    items: [
+      { to: '/demo', label: 'Demo', icon: ListIcon },
+      { to: '/service-parts-demo', label: 'Service Parts Demo', icon: WrenchIcon },
+    ],
   },
 ]
 

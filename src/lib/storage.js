@@ -14,6 +14,8 @@ const MODEL_PARTS_KEY = 'model_part_assignments'
 const PARTS_RULES_KEY = 'parts_rules'
 const PARTS_RULE_ITEMS_KEY = 'parts_rule_items'
 const SERVICE_PROJECTION_KEY = 'service_projection'
+const DEMO_JOB_CARDS_KEY = 'demo_job_cards'
+const DEMO_SERVICES_KEY = 'demo_services'
 
 // Dummy bikes to pick from when assigning a tag. tagId is null until a tag is assigned.
 const DUMMY_BIKE_MODELS = [
@@ -183,6 +185,14 @@ export function savePartsRule(model, services) {
 export const loadServiceProjection = () => load(SERVICE_PROJECTION_KEY)
 export const saveServiceProjection = (rows) => save(SERVICE_PROJECTION_KEY, rows)
 
+// DemoTest page: one job card per projected service.
+export const loadDemoJobCards = () => load(DEMO_JOB_CARDS_KEY)
+export const saveDemoJobCards = (cards) => save(DEMO_JOB_CARDS_KEY, cards)
+
+// DemoTest page: one services row per closed job card (done / lapsed / delayed completion).
+export const loadDemoServices = () => load(DEMO_SERVICES_KEY)
+export const saveDemoServices = (rows) => save(DEMO_SERVICES_KEY, rows)
+
 export function clearAllData() {
   for (const key of [
     VEHICLES_KEY,
@@ -201,6 +211,8 @@ export function clearAllData() {
     PARTS_RULES_KEY,
     PARTS_RULE_ITEMS_KEY,
     SERVICE_PROJECTION_KEY,
+    DEMO_JOB_CARDS_KEY,
+    DEMO_SERVICES_KEY,
   ]) {
     localStorage.removeItem(key)
   }

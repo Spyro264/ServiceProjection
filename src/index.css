@@ -3,3 +3,33 @@
 @theme {
   --color-brand: #fed250;
 }
+
+/* Demo page: a dot travelling from the job card to the spare parts module while it is being called. */
+@keyframes jc-travel {
+  0% {
+    left: 0;
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    left: calc(100% - 0.5rem);
+    opacity: 0;
+  }
+}
+
+/* Demo page: spare parts fading in on the job card when the module answers. */
+@keyframes jc-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
